@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Environment variables & secrets
 # .env is a template with placeholder values (safe to commit)

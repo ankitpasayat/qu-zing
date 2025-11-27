@@ -1,5 +1,5 @@
 import type { GameSession, Player } from '../types/game';
-import { getDisplayName } from '../types/game';
+import { getDisplayName, getAvailableTokens } from '../types/game';
 import { PlayerAvatar } from './PlayerAvatar';
 import { ThemeToggle } from './ThemeToggle';
 import { LobbyCodeDisplay } from './BrowserLobby';
@@ -109,9 +109,10 @@ export function Results({ session, currentPlayer, isHost, onPlayAgain, onCancelP
                     {isCurrentPlayer && <span className="text-xs ml-2 opacity-60">(you)</span>}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Tokens: {player.availableTokens.length > 0 
-                      ? player.availableTokens.join(', ') 
-                      : 'none left'}
+                    Tokens: {(() => {
+                      const tokens = getAvailableTokens(player.tokenCounts);
+                      return tokens.length > 0 ? tokens.join(', ') : 'none left';
+                    })()}
                   </p>
                 </div>
                 <div className="text-right">

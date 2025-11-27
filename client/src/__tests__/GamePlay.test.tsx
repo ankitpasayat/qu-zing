@@ -25,7 +25,7 @@ function createMockPlayer(overrides: Partial<Player> = {}): Player {
       globalName: 'TestPlayer',
     },
     score: 0,
-    availableTokens: [1, 2, 3, 4, 5],
+    tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
     usedTokens: [],
     isHost: false,
     isSpectator: false,

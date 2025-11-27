@@ -7,7 +7,9 @@ import {
   GameSettings,
   DEFAULT_SETTINGS,
   GamePhase,
-  Platform
+  Platform,
+  generateTokenCounts,
+  getAvailableTokens
 } from '../types/game.js';
 import { getRandomQuestions } from './questions.js';
 import { logger } from './logger.js';
@@ -82,7 +84,7 @@ export function getOrCreateSession(
       id: user.id,
       discordUser: user,
       score: 0,
-      availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      tokenCounts: generateTokenCounts(session.settings.totalRounds),
       usedTokens: [],
       isHost: session.players.length === 0 && !isGameInProgress, // First non-spectator player is host
       isConnected: true,
@@ -252,8 +254,21 @@ export function updateSettings(channelId: string, hostId: string, settings: Part
   if (!session || session.hostId !== hostId) return null;
   if (session.currentPhase !== 'lobby' && session.currentPhase !== 'waiting') return null;
 
+  // Check if totalRounds is changing
+  const totalRoundsChanged = settings.totalRounds !== undefined && 
+    settings.totalRounds !== session.settings.totalRounds;
+
   session.settings = { ...session.settings, ...settings };
   session.lastActivity = Date.now();
+
+  // Regenerate token counts for all players when totalRounds changes
+  if (totalRoundsChanged) {
+    const newTotalRounds = session.settings.totalRounds;
+    [...session.players, ...session.spectators].forEach((player: Player) => {
+      player.tokenCounts = generateTokenCounts(newTotalRounds);
+    });
+    logger.info(`Token counts regenerated for ${newTotalRounds} rounds in channel ${channelId}`);
+  }
   
   logger.info(`Settings updated in channel ${channelId}`, settings);
   return session;
@@ -282,6 +297,14 @@ export async function startGame(channelId: string, hostId: string, broadcastFn?:
     logger.warn(`startGame failed: no active players (count: ${activePlayerCount})`);
     return null;
   }
+
+  // Regenerate token counts for all players to match current totalRounds setting
+  const totalRounds = session.settings.totalRounds;
+  session.players.forEach((player: Player) => {
+    player.tokenCounts = generateTokenCounts(totalRounds);
+    player.usedTokens = [];
+    player.score = 0;
+  });
 
   // Create abort controller for this generation
   const abortController = new AbortController();
@@ -408,7 +431,7 @@ export function submitVote(
 
   const player = session.players.find((p: Player) => p.id === playerId);
   if (!player || player.isSpectator) return null;
-  if (!player.availableTokens.includes(token)) return null;
+  if (!player.tokenCounts[token] || player.tokenCounts[token] <= 0) return null;
 
   // Update or add vote
   const existingVoteIndex = session.votes.findIndex((v: PlayerVote) => v.playerId === playerId);
@@ -445,7 +468,9 @@ export function autoVote(channelId: string, playerId: string): GameSession | nul
   if (hasVoted) return session;
 
   // Get lowest available token
-  const lowestToken = Math.min(...player.availableTokens);
+  const availableTokens = getAvailableTokens(player.tokenCounts);
+  if (availableTokens.length === 0) return session;
+  const lowestToken = Math.min(...availableTokens);
   
   // Generate random answer based on question type
   const question = session.currentQuestion;
@@ -515,8 +540,10 @@ function processRoundResults(session: GameSession): void {
     const player = session.players.find((p: Player) => p.id === vote.playerId);
     if (!player) return;
 
-    // Remove token from available
-    player.availableTokens = player.availableTokens.filter((t: number) => t !== vote.token);
+    // Decrement token count (remove one from the stack)
+    if (player.tokenCounts[vote.token] > 0) {
+      player.tokenCounts[vote.token]--;
+    }
 
     // Check if answer is correct
     const isCorrect = checkAnswer(question, vote.answer);
@@ -598,7 +625,7 @@ export function resetGame(channelId: string, hostId: string): GameSession | null
   // Reset all players
   [...session.players, ...session.spectators].forEach((player: Player) => {
     player.score = 0;
-    player.availableTokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    player.tokenCounts = generateTokenCounts(session.settings.totalRounds);
     player.usedTokens = [];
     player.isSpectator = false;
   });
@@ -639,7 +666,7 @@ export async function playAgain(channelId: string, hostId: string, broadcastFn?:
   // Reset all players
   [...session.players, ...session.spectators].forEach((player: Player) => {
     player.score = 0;
-    player.availableTokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    player.tokenCounts = generateTokenCounts(session.settings.totalRounds);
     player.usedTokens = [];
     player.isSpectator = false;
   });

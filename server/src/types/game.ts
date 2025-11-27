@@ -18,12 +18,47 @@ export interface Player {
   id: string; // Discord user ID
   discordUser: DiscordUser;
   score: number;
-  availableTokens: number[]; // tokens 1-10 that haven't been used
+  tokenCounts: Record<number, number>; // token value -> count available (supports stacked tokens for >10 rounds)
   usedTokens: number[]; // tokens that have been played and scored
   isHost: boolean;
   isConnected: boolean;
   isSpectator: boolean; // true if joined mid-game
   joinedAt: number;
+}
+
+// Helper to generate initial token counts based on total rounds
+// Extra rounds add duplicates starting from highest value (10) down
+export function generateTokenCounts(totalRounds: number): Record<number, number> {
+  const counts: Record<number, number> = {};
+  
+  // Base: 1 of each token 1-10
+  for (let i = 1; i <= 10; i++) {
+    counts[i] = 1;
+  }
+  
+  // Extra tokens for rounds > 10, starting from 10 and going down
+  let extraTokens = totalRounds - 10;
+  let tokenValue = 10;
+  
+  while (extraTokens > 0 && tokenValue >= 1) {
+    counts[tokenValue]++;
+    extraTokens--;
+    tokenValue--;
+    if (tokenValue < 1) tokenValue = 10; // Wrap around for 20+ rounds
+  }
+  
+  return counts;
+}
+
+// Helper to get available tokens as sorted array (for UI)
+export function getAvailableTokens(tokenCounts: Record<number, number>): number[] {
+  const tokens: number[] = [];
+  for (let i = 1; i <= 10; i++) {
+    if (tokenCounts[i] > 0) {
+      tokens.push(i);
+    }
+  }
+  return tokens;
 }
 
 export type QuestionType = 'multiple-choice' | 'true-false' | 'more-or-less' | 'numerical';

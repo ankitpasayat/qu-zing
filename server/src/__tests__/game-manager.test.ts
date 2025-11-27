@@ -352,6 +352,30 @@ describe('GameManager', () => {
       const result = updateSettings(channelId, 'user1', { totalRounds: 5 });
       expect(result).toBeNull();
     });
+
+    it('should regenerate token counts when totalRounds changes', () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      // Initially 10 rounds = 10 tokens (1 of each 1-10)
+      let session = getSession(channelId)!;
+      expect(Object.values(session.players[0].tokenCounts).reduce((a, b) => a + b, 0)).toBe(10);
+      
+      // Update to 15 rounds = 15 tokens
+      session = updateSettings(channelId, 'user1', { totalRounds: 15 })!;
+      const totalTokens = Object.values(session.players[0].tokenCounts).reduce((a, b) => a + b, 0);
+      expect(totalTokens).toBe(15);
+      
+      // Check that high-value tokens got extra counts (10, 9, 8, 7, 6 should have 2 each)
+      expect(session.players[0].tokenCounts[10]).toBe(2);
+      expect(session.players[0].tokenCounts[9]).toBe(2);
+      expect(session.players[0].tokenCounts[8]).toBe(2);
+      expect(session.players[0].tokenCounts[7]).toBe(2);
+      expect(session.players[0].tokenCounts[6]).toBe(2);
+      expect(session.players[0].tokenCounts[5]).toBe(1);
+    });
   });
 
   describe('startGame', () => {
@@ -413,6 +437,26 @@ describe('GameManager', () => {
       
       expect(broadcastCalls.some(c => c.type === 'generating_questions')).toBe(true);
     });
+
+    it('should regenerate tokens to match settings.totalRounds', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      // Change settings to 15 rounds
+      updateSettings(channelId, 'user1', { totalRounds: 15 });
+      
+      const session = await startGame(channelId, 'user1');
+      
+      expect(session).not.toBeNull();
+      // Total tokens should be 15
+      const totalTokens = Object.values(session!.players[0].tokenCounts).reduce((a, b) => a + b, 0);
+      expect(totalTokens).toBe(15);
+      // Score should be reset
+      expect(session!.players[0].score).toBe(0);
+      expect(session!.players[0].usedTokens).toEqual([]);
+    });
   });
 
   describe('cancelGeneration', () => {
@@ -473,7 +517,7 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1,2,3,4,5,6,7,8,9,10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,
@@ -495,7 +539,7 @@ describe('GameManager', () => {
       
       const session = getSession(channelId)!;
       session.currentPhase = 'voting';
-      session.players[0].availableTokens = [1, 2, 3]; // Token 5 not available
+      session.players[0].tokenCounts = { 1: 1, 2: 1, 3: 1 }; // Token 5 not available
       
       const result = submitVote(channelId, 'user1', 0, 5);
       expect(result).toBeNull();
@@ -527,7 +571,7 @@ describe('GameManager', () => {
       
       const session = getSession(channelId)!;
       session.currentPhase = 'voting';
-      session.players[0].availableTokens = [3, 5, 7]; // Lowest is 3
+      session.players[0].tokenCounts = { 3: 1, 5: 1, 7: 1 }; // Lowest is 3
       
       const result = autoVote(channelId, 'user1');
       
@@ -706,7 +750,7 @@ describe('GameManager', () => {
       expect(result?.currentPhase).toBe('lobby');
       expect(result?.currentRound).toBe(0);
       expect(result?.players[0].score).toBe(0);
-      expect(result?.players[0].availableTokens).toEqual([1,2,3,4,5,6,7,8,9,10]);
+      expect(result?.players[0].tokenCounts).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 });
       expect(result?.questionHistory).toEqual([]);
     });
 
@@ -720,7 +764,7 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1,2,3,4,5,6,7,8,9,10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,
@@ -749,7 +793,7 @@ describe('GameManager', () => {
       session.currentRound = session.totalRounds;
       session.players[0].score = 25;
       session.players[0].usedTokens = [5, 10];
-      session.players[0].availableTokens = [1, 2, 3, 4, 6, 7, 8, 9];
+      session.players[0].tokenCounts = { 1: 1, 2: 1, 3: 1, 4: 1, 6: 1, 7: 1, 8: 1, 9: 1 };
       
       const result = await playAgain(channelId, 'user1');
       
@@ -757,7 +801,7 @@ describe('GameManager', () => {
       expect(result?.currentPhase).toBe('question');
       expect(result?.currentRound).toBe(1);
       expect(result?.players[0].score).toBe(0);
-      expect(result?.players[0].availableTokens).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      expect(result?.players[0].tokenCounts).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 });
       expect(result?.questionHistory.length).toBeGreaterThan(0);
     });
 
@@ -795,7 +839,7 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,

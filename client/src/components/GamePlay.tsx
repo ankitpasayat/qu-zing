@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { GameSession, Player, Question, PlayerVote } from '../types/game';
-import { getDisplayName } from '../types/game';
+import { getDisplayName, getAvailableTokens } from '../types/game';
 import { PlayerAvatar } from './PlayerAvatar';
 import { TokenSelector } from './TokenSelector';
 import { ThemeToggle } from './ThemeToggle';
@@ -178,9 +178,10 @@ export function GamePlay({
     // Auto-submit for current player if they haven't voted
     if (!hasVoted && !isSpectator && currentQuestion) {
       // Use selected values if available, otherwise use defaults
+      const availableTokens = getAvailableTokens(currentPlayer.tokenCounts);
       const token = selectedToken !== null 
         ? selectedToken 
-        : Math.min(...currentPlayer.availableTokens);
+        : Math.min(...availableTokens);
       const answer = selectedAnswer !== null 
         ? selectedAnswer 
         : getRandomAnswer(currentQuestion);
@@ -470,7 +471,7 @@ export function GamePlay({
               />
               
               <TokenSelector
-                availableTokens={currentPlayer.availableTokens}
+                tokenCounts={currentPlayer.tokenCounts}
                 selectedToken={selectedToken}
                 onSelect={setSelectedToken}
                 disabled={selectedAnswer === null}

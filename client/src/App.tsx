@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { initializeDiscord, inviteFriends, resetDiscordState } from './discord';
+import { initializeDiscord, inviteFriends } from './discord';
 import { useGameEvents, useGameApi } from './hooks/useGameEvents';
 import { Lobby } from './components/Lobby';
 import { GamePlay } from './components/GamePlay';
@@ -198,6 +198,8 @@ function App() {
   const [optimisticSettings, setOptimisticSettings] = useState<Partial<GameSettings> | null>(null);
   // Track pending settings to know when server has confirmed them
   const pendingSettingsRef = useRef<Partial<GameSettings> | null>(null);
+  // Counter to force socket reconnection after exit game
+  const [reconnectKey, setReconnectKey] = useState(0);
 
   const handleGameUpdate = useCallback((updatedSession: GameSession) => {
     // Only clear optimistic settings if the server state now matches what we sent
@@ -218,7 +220,7 @@ function App() {
     }
   }, []);
 
-  const { session, isConnected, error: connectionError, socket } = useGameEvents({
+  const { session, isConnected, error: connectionError, socket, markAsExited } = useGameEvents({
     channelId: discordData?.channelId ?? null,
     playerId,
     onUpdate: handleGameUpdate,
@@ -227,6 +229,7 @@ function App() {
     instanceId: discordData?.instanceId ?? '',
     user: discordData?.user,
     platform: platform ?? 'discord',
+    reconnectKey,
   });
 
   const api = useGameApi(discordData?.channelId ?? null, socket);
@@ -252,29 +255,31 @@ function App() {
     
     try {
       console.log('🚪 Exiting game...');
+      // Mark as exited BEFORE calling the API to prevent double-leave in cleanup
+      markAsExited();
       await api.exitGame(playerId);
       
       // Reset state to return to lobby
-      setDiscordData(null);
-      setPlayerId(null);
       setInitialSession(null);
       
       if (platform === 'browser') {
         // Browser mode - show lobby setup again
+        setDiscordData(null);
+        setPlayerId(null);
         setShowBrowserLobbySetup(true);
         // Clear lobby code from URL
         window.history.replaceState({}, '', window.location.pathname);
       } else {
-        // Discord mode - reset app state but keep SDK authentication
-        // The SDK is already authenticated, we just need to rejoin the session
-        resetDiscordState(true); // Keep SDK state to avoid re-authorization
-        initSucceededRef.current = false;
-        initDiscord();
+        // Discord mode - force socket reconnection by incrementing key
+        // This ensures a fresh socket connection even though channelId/playerId stay the same
+        setReconnectKey(prev => prev + 1);
+        // Also clear and reset the session state
+        setInitialSession(null);
       }
     } catch (err) {
       console.error('Failed to exit game:', err);
     }
-  }, [playerId, platform, api, initDiscord]);
+  }, [playerId, platform, api, markAsExited]);
 
   // Find current player
   const currentPlayer = session?.players.find((p: Player) => p.id === playerId) 

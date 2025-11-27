@@ -17,7 +17,7 @@ const createMockPlayer = (overrides: Partial<Player> = {}): Player => ({
   id: '123456789012345678',
   discordUser: createMockUser(),
   score: 0,
-  availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
   usedTokens: [],
   isHost: false,
   isConnected: true,

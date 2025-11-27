@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables & secrets
+# .env is a template with placeholder values (safe to commit)
+# .env.local contains real secrets (NEVER commit)
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+*.pfx
+*.cer
+*.crt
+secrets/
+credentials/
+
+# Build outputs
+dist/
+build/
+client/dist/
+server/dist/
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+!discord.config.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cloudflare
+.wrangler/
+wrangler.toml
+
+# Docker
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.backup
+*.bak
+
+# NPM
+.npmrc
+
+# Notes
+NOTES.md

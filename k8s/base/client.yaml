@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: qu-zing
+  labels:
+    app: qu-zing
+    component: client
+spec:
+  replicas: 1  # Will be overridden by overlays
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qu-zing
+      component: client
+  template:
+    metadata:
+      labels:
+        app: qu-zing
+        component: client
+    spec:
+      containers:
+      - name: client
+        image: qu-zing-client:latest  # Will be overridden
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        env:
+        - name: VITE_DISCORD_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: qu-zing-secrets
+              key: DISCORD_CLIENT_ID
+        - name: VITE_SERVER_URL
+          value: "http://server-service:3000"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-service
+  namespace: qu-zing
+  labels:
+    app: qu-zing
+    component: client
+spec:
+  type: ClusterIP
+  selector:
+    app: qu-zing
+    component: client
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http

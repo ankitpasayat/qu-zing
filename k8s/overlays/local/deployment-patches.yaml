@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: qu-zing
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: server
+        imagePullPolicy: Never
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  namespace: qu-zing
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: client
+        imagePullPolicy: Never
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

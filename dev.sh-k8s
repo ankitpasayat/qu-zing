@@ -1,0 +1,187 @@
+#!/bin/bash
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+
+# Debug mode (inherited from dev.sh)
+DEBUG=${DEBUG:-false}
+
+# Helper for conditional output
+log() {
+    if [ "$DEBUG" = true ]; then
+        echo -e "$@"
+    fi
+}
+
+# Check .env.local (real secrets)
+if [ ! -f .env.local ]; then
+    echo -e "${RED}✗ .env.local file not found${NC}"
+    echo -e "${YELLOW}Copy .env template and configure it:${NC}"
+    echo "  cp .env .env.local"
+    echo "  nano .env.local"
+    exit 1
+fi
+
+# Export from .env.local
+set -a
+source .env.local
+set +a
+
+log "${GREEN}✓ Dependencies OK${NC}"
+log ""
+
+# Cleanup
+cleanup() {
+    echo -e "\n${YELLOW}Shutting down...${NC}"
+    pkill -f "cloudflared tunnel" 2>/dev/null || true
+    minikube delete 2>/dev/null || true
+    echo -e "${GREEN}✅ Stopped${NC}"
+    exit 0
+}
+trap cleanup SIGINT SIGTERM EXIT
+
+# Check if minikube is running
+if minikube status >/dev/null 2>&1; then
+    log "${YELLOW}Minikube already running, using existing cluster${NC}"
+else
+    log "${BLUE}Starting Minikube...${NC}"
+    if [ "$DEBUG" = true ]; then
+        minikube start --driver=docker --cpus=4 --memory=4096
+    else
+        minikube start --driver=docker --cpus=4 --memory=4096 > /dev/null 2>&1
+    fi
+fi
+
+# Enable ingress addon
+log "${BLUE}Enabling ingress addon...${NC}"
+minikube addons enable ingress > /dev/null 2>&1
+
+# Build images in minikube's docker
+log "${BLUE}Building images in Minikube...${NC}"
+eval $(minikube docker-env)
+
+log "${BLUE}Building server image...${NC}"
+if [ "$DEBUG" = true ]; then
+    docker build -t qu-zing-server:local ./server
+else
+    docker build -q -t qu-zing-server:local ./server > /dev/null 2>&1
+fi
+
+log "${BLUE}Building client image...${NC}"
+if [ "$DEBUG" = true ]; then
+    docker build -t qu-zing-client:local \
+      --build-arg VITE_DISCORD_CLIENT_ID="${DISCORD_CLIENT_ID}" \
+      ./client
+else
+    docker build -q -t qu-zing-client:local \
+      --build-arg VITE_DISCORD_CLIENT_ID="${DISCORD_CLIENT_ID}" \
+      ./client > /dev/null 2>&1
+fi
+
+# Create namespace
+log "${BLUE}Creating namespace...${NC}"
+kubectl create namespace qu-zing 2>/dev/null || true
+
+# Create secrets from .env.local
+log "${BLUE}Creating secrets...${NC}"
+kubectl create secret generic qu-zing-secrets \
+  --namespace=qu-zing \
+  --from-literal=DISCORD_CLIENT_ID="${DISCORD_CLIENT_ID}" \
+  --from-literal=DISCORD_CLIENT_SECRET="${DISCORD_CLIENT_SECRET}" \
+  --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY:-}" \
+  --dry-run=client -o yaml | kubectl apply -f - > /dev/null 2>&1
+
+# Deploy using kustomize
+log "${BLUE}Deploying to Kubernetes...${NC}"
+kubectl apply -k k8s/overlays/local > /dev/null 2>&1
+
+# Wait for deployments
+log "${YELLOW}Waiting for pods to be ready...${NC}"
+kubectl wait --for=condition=ready pod -l app=qu-zing -n qu-zing --timeout=300s > /dev/null 2>&1
+
+# Get ingress URL
+log "${YELLOW}Getting ingress URL...${NC}"
+MINIKUBE_IP=$(minikube ip)
+INGRESS_URL="http://${MINIKUBE_IP}"
+
+# Start minikube tunnel in background
+log "${BLUE}Starting Minikube tunnel (requires sudo)...${NC}"
+sudo -n minikube tunnel > /dev/null 2>&1 &
+TUNNEL_PID=$!
+
+sleep 5
+
+# Start Cloudflare tunnel for public access
+log "${BLUE}Starting Cloudflare tunnel...${NC}"
+mkdir -p logs
+cloudflared tunnel --url ${INGRESS_URL} > logs/tunnel-k8s.log 2>&1 &
+CF_TUNNEL_PID=$!
+
+# Get public tunnel URL
+log "${YELLOW}Getting public tunnel URL...${NC}"
+TUNNEL_URL=""
+for i in {1..30}; do
+    if [ -f logs/tunnel-k8s.log ]; then
+        TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/tunnel-k8s.log | tail -1)
+        [ -n "$TUNNEL_URL" ] && break
+    fi
+    sleep 1
+done
+
+# Always show the tunnel URL prominently
+echo ""
+echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  🚀 KUBERNETES READY${NC}"
+echo -e "${GREEN}  🌐 TUNNEL URL: ${YELLOW}${TUNNEL_URL}${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+if [ "$DEBUG" = true ]; then
+    # Display full info in debug mode
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║              🚀 KUBERNETES - READY 🚀                      ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}🌐 Public URL:${NC}        ${YELLOW}${TUNNEL_URL}${NC}"
+    echo -e "${BLUE}📊 Analytics:${NC}         ${YELLOW}${TUNNEL_URL}/analytics${NC}"
+    echo -e "${BLUE}🏠 Local URL:${NC}         ${YELLOW}${INGRESS_URL}${NC}"
+    echo -e "${BLUE}🏠 Minikube IP:${NC}       ${YELLOW}${MINIKUBE_IP}${NC}"
+    echo ""
+    echo -e "${BLUE}🔧 Architecture:${NC}"
+    echo -e "   • Kubernetes (Minikube)"
+    echo -e "   • Redis Pod"
+    echo -e "   • Server Deployment (scalable)"
+    echo -e "   • Client Deployment"
+    echo -e "   • Nginx Ingress Controller"
+    echo -e "   • Cloudflare tunnel (public access)"
+    echo ""
+    echo -e "${BLUE}📝 Useful Commands:${NC}"
+    echo -e "   ${YELLOW}kubectl get all -n qu-zing${NC}     # Status"
+    echo -e "   ${YELLOW}kubectl logs -n qu-zing -l component=server -f${NC}"
+    echo -e "   ${YELLOW}kubectl scale deployment server --replicas=5 -n qu-zing${NC}"
+    echo -e "   ${YELLOW}minikube dashboard${NC}                       # Web UI"
+    echo -e "   ${YELLOW}tail -f logs/tunnel-k8s.log${NC}             # Tunnel logs"
+    echo ""
+    echo -e "${BLUE}🎮 Discord Setup:${NC}"
+    echo -e "   1. Go to https://discord.com/developers/applications"
+    echo -e "   2. OAuth2 Redirect: ${YELLOW}${TUNNEL_URL}/${NC}"
+    echo -e "   3. Activity URL: ${YELLOW}/${NC} → ${YELLOW}${TUNNEL_URL}${NC}"
+    echo -e "   4. Wait 5-10 minutes for propagation"
+    echo ""
+    echo -e "${GREEN}Press Ctrl+C to stop everything${NC}"
+    echo ""
+    echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    # Show live logs in debug mode
+    kubectl logs -n qu-zing -l component=server -f
+else
+    # Silent mode - just wait
+    wait
+fi

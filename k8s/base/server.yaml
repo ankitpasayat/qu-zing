@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: qu-zing
+  labels:
+    app: qu-zing
+    component: server
+spec:
+  replicas: 1  # Will be overridden by overlays
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: qu-zing
+      component: server
+  template:
+    metadata:
+      labels:
+        app: qu-zing
+        component: server
+    spec:
+      containers:
+      - name: server
+        image: qu-zing-server:latest  # Will be overridden
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: qu-zing-config
+              key: NODE_ENV
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: qu-zing-config
+              key: PORT
+        - name: CLIENT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: qu-zing-config
+              key: CLIENT_URL
+        - name: DISCORD_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: qu-zing-secrets
+              key: DISCORD_CLIENT_ID
+        - name: DISCORD_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: qu-zing-secrets
+              key: DISCORD_CLIENT_SECRET
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qu-zing-secrets
+              key: GOOGLE_API_KEY
+              optional: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-service
+  namespace: qu-zing
+  labels:
+    app: qu-zing
+    component: server
+spec:
+  type: ClusterIP
+  selector:
+    app: qu-zing
+    component: server
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800

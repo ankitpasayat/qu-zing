@@ -1,0 +1,108 @@
+#!/bin/bash
+set -e
+
+# Qu-Zing! - Hot Reload Mode
+# Runs client and server with hot reload + Cloudflare tunnel
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Debug mode (inherited from dev.sh)
+DEBUG=${DEBUG:-false}
+
+# Helper for conditional output
+log() {
+    if [ "$DEBUG" = true ]; then
+        echo -e "$@"
+    fi
+}
+
+if [ "$DEBUG" = true ]; then
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║             Qu-Zing! - Hot Reload Mode                    ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+fi
+
+# Check dependencies
+command -v npm >/dev/null 2>&1 || { echo -e "${RED}✗ npm required${NC}"; exit 1; }
+command -v cloudflared >/dev/null 2>&1 || { echo -e "${RED}✗ cloudflared required (sudo pacman -S cloudflared)${NC}"; exit 1; }
+
+# Cleanup function
+cleanup() {
+    echo -e "\n${YELLOW}Shutting down...${NC}"
+    kill $CLIENT_PID $SERVER_PID $TUNNEL_PID 2>/dev/null
+    wait $CLIENT_PID $SERVER_PID $TUNNEL_PID 2>/dev/null
+    rm -f "$TUNNEL_LOG"
+    echo -e "${GREEN}✓ All processes stopped${NC}"
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# Start server (port 3000)
+log "${CYAN}Starting server...${NC}"
+if [ "$DEBUG" = true ]; then
+    (cd server && npm run dev) &
+else
+    (cd server && npm run dev > /dev/null 2>&1) &
+fi
+SERVER_PID=$!
+sleep 2
+
+# Start client (port 5173)
+log "${CYAN}Starting client...${NC}"
+if [ "$DEBUG" = true ]; then
+    (cd client && npm run dev) &
+else
+    (cd client && npm run dev > /dev/null 2>&1) &
+fi
+CLIENT_PID=$!
+sleep 2
+
+# Start Cloudflare tunnel to client port
+log "${CYAN}Starting Cloudflare tunnel...${NC}"
+TUNNEL_LOG=$(mktemp)
+if [ "$DEBUG" = true ]; then
+    cloudflared tunnel --url http://localhost:5173 2>&1 | tee "$TUNNEL_LOG" &
+else
+    cloudflared tunnel --url http://localhost:5173 > "$TUNNEL_LOG" 2>&1 &
+fi
+TUNNEL_PID=$!
+
+# Wait for tunnel URL
+log "${YELLOW}Waiting for tunnel URL...${NC}"
+TUNNEL_URL=""
+for i in {1..30}; do
+    TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1)
+    if [ -n "$TUNNEL_URL" ]; then
+        break
+    fi
+    sleep 1
+done
+
+# Always show the tunnel URL prominently
+echo ""
+echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  🌐 TUNNEL URL: ${YELLOW}${TUNNEL_URL}${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+if [ "$DEBUG" = true ]; then
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                    Qu-Zing! Hot Reload                     ║${NC}"
+    echo -e "${BLUE}╠════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${BLUE}║${NC} ${GREEN}Client:${NC}  http://localhost:5173                            ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC} ${GREEN}Server:${NC}  http://localhost:3000                            ${BLUE}║${NC}"
+    echo -e "${BLUE}╠════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${BLUE}║${NC} ${YELLOW}Press Ctrl+C to stop all services${NC}                         ${BLUE}║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+fi
+
+# Keep running and wait for processes
+wait $CLIENT_PID $SERVER_PID $TUNNEL_PID

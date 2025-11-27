@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Qu-Zing! - A multiplayer trivia game with confidence scoring" />
+    <meta name="theme-color" content="#0f0a1e" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>Qu-Zing!</title>
+    <style>
+      /* Ensure dark background is applied immediately to prevent white flash */
+      html, body {
+        background-color: #0f0a1e !important;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+      }
+      #root {
+        min-height: 100vh;
+        background: linear-gradient(145deg, #0f0a1e 0%, #1a1033 40%, #231942 100%);
+      }
+    </style>
+    <script>
+      // Check for saved theme preference or system preference
+      (function() {
+        const theme = localStorage.getItem('qu-zing-theme');
+        if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          // Update background for light mode
+          document.documentElement.style.backgroundColor = '#fafbff';
+          document.body.style.backgroundColor = '#fafbff';
+        } else if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          document.documentElement.style.backgroundColor = '#fafbff';
+          document.body.style.backgroundColor = '#fafbff';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Initial loading state shown before React hydrates -->
+      <div id="initial-loader" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(145deg, #0f0a1e 0%, #1a1033 40%, #231942 100%);">
+        <div style="text-align: center;">
+          <div style="width: 48px; height: 48px; border: 3px solid #3b82f6; border-top-color: transparent; border-radius: 50%; margin: 0 auto 16px; animation: spin 1s linear infinite;"></div>
+          <p style="color: #94a3b8; font-family: system-ui, sans-serif;">Loading Qu-Zing!...</p>
+        </div>
+      </div>
+      <style>
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "Discord Activity",
+  "description": "A Discord Activity built with Embedded App SDK",
+  "type": "EMBEDDED",
+  "default_orientation_lock": "UNLOCKED",
+  "supported_platforms": ["DESKTOP", "MOBILE"],
+  "activity_preview_video_asset_id": null,
+  "assets": {
+    "small_image": null,
+    "large_image": null
+  }
+}

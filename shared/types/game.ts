@@ -47,6 +47,15 @@ export interface DiscordUser {
   platform?: Platform;
 }
 
+/**
+ * Player state in a game session.
+ * 
+ * @breaking API Change: `availableTokens: number[]` was replaced with `tokenCounts: Record<number, number>`
+ * in order to support stacked tokens for games with >10 rounds. The new structure maps
+ * token values (1-10) to their available count. Use `getAvailableTokens(tokenCounts)`
+ * to get a sorted array of available token values for backwards compatibility.
+ * Existing player sessions will be invalidated on deployment.
+ */
 export interface Player {
   id: string; // Discord user ID
   discordUser: DiscordUser;
@@ -319,12 +328,20 @@ export function getSplitResult(sourceValue: number): { count: number; values: [n
   return { count: 2, values: [val1, val2] };
 }
 
-/** @deprecated Use getCombineResult instead */
+/**
+ * @deprecated This function uses the OLD trading mechanic (2 tokens of N-1 → 1 token of N).
+ * The NEW mechanic uses getCombineResult (2 tokens of N → 1 token of 2N, capped at 10).
+ * These are NOT equivalent - migrate to getCombineResult for new code.
+ */
 export function getTradeUpCost(targetValue: number): { required: number; value: number } {
   return { required: 2, value: targetValue - 1 };
 }
 
-/** @deprecated Use getSplitResult instead */
+/**
+ * @deprecated This function uses the OLD trading mechanic (1 token → 2 tokens of floor(N/2)).
+ * The NEW mechanic uses getSplitResult (1 token of N → 2 tokens of floor(N/2) and ceil(N/2)).
+ * getSplitResult preserves total value better for odd numbers.
+ */
 export function getTradeDownResult(sourceValue: number): { count: number; value: number } {
   return { count: 2, value: Math.floor(sourceValue / 2) };
 }

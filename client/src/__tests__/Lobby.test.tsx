@@ -17,12 +17,20 @@ const createMockPlayer = (overrides: Partial<Player> = {}): Player => ({
   id: '123456789012345678',
   discordUser: createMockUser(),
   score: 0,
-  availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
   usedTokens: [],
   isHost: false,
   isConnected: true,
   isSpectator: false,
   joinedAt: Date.now(),
+  powerUps: [
+    { type: 'double-down', used: false },
+    { type: 'safety-net', used: false },
+    { type: '50-50', used: false },
+  ],
+  streak: { current: 0, best: 0 },
+  gambit: null,
+  lastAnswerTime: null,
   ...overrides,
 });
 
@@ -126,7 +134,7 @@ describe('Lobby Component', () => {
       />
     );
 
-    expect(screen.getByText('Solo mode available!')).toBeInTheDocument();
+    expect(screen.getByText(/Solo mode/i)).toBeInTheDocument();
   });
 
   describe('Host Controls', () => {
@@ -144,7 +152,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: /Start Solo Game/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Start Solo!/i })).toBeInTheDocument();
     });
 
     it('should show settings panel for host', () => {
@@ -161,7 +169,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByText('⚙️ Game Settings')).toBeInTheDocument();
+      expect(screen.getByText(/Game Settings/i)).toBeInTheDocument();
     });
 
     it('should call onStartGame when clicking start button', async () => {
@@ -179,7 +187,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: /Start Solo Game/i }));
+      await user.click(screen.getByRole('button', { name: /Start Solo!/i }));
 
       expect(mockOnStartGame).toHaveBeenCalled();
     });
@@ -199,7 +207,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByText('Generating questions...')).toBeInTheDocument();
+      expect(screen.getByText(/Generating/i)).toBeInTheDocument();
     });
 
     it('should show cancel button when generating', () => {
@@ -217,7 +225,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cancel/i })).toBeInTheDocument();
     });
 
     it('should call onCancelGeneration when clicking cancel', async () => {
@@ -236,7 +244,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await user.click(screen.getByRole('button', { name: /Cancel/i }));
 
       expect(mockOnCancelGeneration).toHaveBeenCalled();
     });
@@ -262,7 +270,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByText('Waiting for host to start...')).toBeInTheDocument();
+      expect(screen.getByText(/Waiting for host to start/i)).toBeInTheDocument();
     });
 
     it('should not show settings panel for non-host', () => {
@@ -284,7 +292,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.queryByText('⚙️ Game Settings')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Game Settings/i)).not.toBeInTheDocument();
     });
   });
 
@@ -321,7 +329,7 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByTitle('Leave lobby')).toBeInTheDocument();
+      expect(screen.getByTitle('Leave game')).toBeInTheDocument();
     });
   });
 
@@ -379,8 +387,8 @@ describe('Lobby Component', () => {
         />
       );
 
-      expect(screen.getByText('⚡ How to Play')).toBeInTheDocument();
-      expect(screen.getByText(/Bet tokens/)).toBeInTheDocument();
+      expect(screen.getByText(/How to Play/i)).toBeInTheDocument();
+      expect(screen.getByText(/Bet tokens|bet tokens/i)).toBeInTheDocument();
     });
   });
 
@@ -451,6 +459,83 @@ describe('Lobby Component', () => {
       await user.selectOptions(answerTimeSelect, '15');
 
       expect(mockOnUpdateSettings).toHaveBeenCalledWith({ timeToAnswer: 15 });
+    });
+
+    it('should update time to view answer setting', async () => {
+      const user = userEvent.setup();
+      const session = createMockSession();
+
+      render(
+        <Lobby
+          session={session}
+          currentPlayer={session.players[0]}
+          isHost={true}
+          onStartGame={mockOnStartGame}
+          onInviteFriends={mockOnInviteFriends}
+          onUpdateSettings={mockOnUpdateSettings}
+        />
+      );
+
+      // Find all selects and pick the fourth one (time to view answer)
+      const allSelects = screen.getAllByRole('combobox');
+      const viewAnswerTimeSelect = allSelects[3]; // Fourth select is time to view answer
+      await user.selectOptions(viewAnswerTimeSelect, '7');
+
+      expect(mockOnUpdateSettings).toHaveBeenCalledWith({ timeToViewAnswer: 7 });
+    });
+
+    it('should toggle mid-game joins setting', async () => {
+      const user = userEvent.setup();
+      const session = createMockSession();
+
+      render(
+        <Lobby
+          session={session}
+          currentPlayer={session.players[0]}
+          isHost={true}
+          onStartGame={mockOnStartGame}
+          onInviteFriends={mockOnInviteFriends}
+          onUpdateSettings={mockOnUpdateSettings}
+        />
+      );
+
+      // Find the mid-game joins label and its adjacent button
+      const midGameJoinsLabel = screen.getByText('Mid-game joins');
+      const toggleButton = midGameJoinsLabel.parentElement?.querySelector('button');
+      expect(toggleButton).toBeInTheDocument();
+      
+      await user.click(toggleButton!);
+
+      expect(mockOnUpdateSettings).toHaveBeenCalledWith({ allowMidGameJoin: false });
+    });
+
+    it('should toggle mid-game joins from off to on', async () => {
+      const user = userEvent.setup();
+      const session = createMockSession({
+        settings: {
+          ...createMockSession().settings,
+          allowMidGameJoin: false,
+        },
+      });
+
+      render(
+        <Lobby
+          session={session}
+          currentPlayer={session.players[0]}
+          isHost={true}
+          onStartGame={mockOnStartGame}
+          onInviteFriends={mockOnInviteFriends}
+          onUpdateSettings={mockOnUpdateSettings}
+        />
+      );
+
+      // Find the mid-game joins label and its adjacent button
+      const midGameJoinsLabel = screen.getByText('Mid-game joins');
+      const toggleButton = midGameJoinsLabel.parentElement?.querySelector('button');
+      
+      await user.click(toggleButton!);
+
+      expect(mockOnUpdateSettings).toHaveBeenCalledWith({ allowMidGameJoin: true });
     });
   });
 });

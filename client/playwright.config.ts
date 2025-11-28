@@ -14,16 +14,18 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
   
-  /* Opt out of parallel tests on CI */
-  workers: process.env.CI ? 1 : undefined,
+  /* Use more workers locally for faster runs */
+  workers: process.env.CI ? 2 : undefined,
+  
+  /* Timeout for each test */
+  timeout: 15000,
   
   /* Reporter to use */
-  reporter: [
-    ['html', { open: 'never' }],
-    ['list']
-  ],
+  reporter: process.env.CI 
+    ? [['github'], ['html', { open: 'never' }]]
+    : [['html', { open: 'never' }], ['list']],
   
   /* Shared settings for all the projects below */
   use: {
@@ -35,20 +37,16 @@ export default defineConfig({
     
     /* Take screenshot on failure */
     screenshot: 'only-on-failure',
+    
+    /* Faster action timeout */
+    actionTimeout: 10000,
   },
 
-  /* Configure projects for major browsers */
-  /* Only using Chromium to avoid system dependency issues in CI */
+  /* Only test Chromium - Desktop and Mobile viewports covered in tests */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-
-    /* Test against mobile viewport using Chromium */
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
     },
   ],
 
@@ -57,6 +55,6 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 60 * 1000,
   },
 });

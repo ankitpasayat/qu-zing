@@ -15,6 +15,10 @@ import {
   cleanupInactiveSessions,
   getAnalytics,
   cancelGeneration,
+  activateGambit,
+  tradeTokensUp,
+  tradeTokensDown,
+  get5050Options,
 } from '../lib/game-manager.js';
 import type { DiscordUser } from '../types/game.js';
 
@@ -244,8 +248,8 @@ describe('GameManager', () => {
       // Simulate voting phase
       session.currentPhase = 'voting';
       session.votes = [
-        { playerId: 'user1', answer: 0, token: 5, submittedAt: Date.now() },
-        { playerId: 'user2', answer: 1, token: 3, submittedAt: Date.now() },
+        { playerId: 'user1', answer: 0, token: 5, submittedAt: Date.now(), powerUpUsed: null, eliminatedOptions: null },
+        { playerId: 'user2', answer: 1, token: 3, submittedAt: Date.now(), powerUpUsed: null, eliminatedOptions: null },
       ];
       
       const { session: updatedSession } = exitGame(channelId, 'user1');
@@ -352,6 +356,30 @@ describe('GameManager', () => {
       const result = updateSettings(channelId, 'user1', { totalRounds: 5 });
       expect(result).toBeNull();
     });
+
+    it('should regenerate token counts when totalRounds changes', () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      // Initially 10 rounds = 10 tokens (1 of each 1-10)
+      let session = getSession(channelId)!;
+      expect(Object.values(session.players[0].tokenCounts).reduce((a, b) => a + b, 0)).toBe(10);
+      
+      // Update to 15 rounds = 15 tokens
+      session = updateSettings(channelId, 'user1', { totalRounds: 15 })!;
+      const totalTokens = Object.values(session.players[0].tokenCounts).reduce((a, b) => a + b, 0);
+      expect(totalTokens).toBe(15);
+      
+      // Check that high-value tokens got extra counts (10, 9, 8, 7, 6 should have 2 each)
+      expect(session.players[0].tokenCounts[10]).toBe(2);
+      expect(session.players[0].tokenCounts[9]).toBe(2);
+      expect(session.players[0].tokenCounts[8]).toBe(2);
+      expect(session.players[0].tokenCounts[7]).toBe(2);
+      expect(session.players[0].tokenCounts[6]).toBe(2);
+      expect(session.players[0].tokenCounts[5]).toBe(1);
+    });
   });
 
   describe('startGame', () => {
@@ -413,6 +441,26 @@ describe('GameManager', () => {
       
       expect(broadcastCalls.some(c => c.type === 'generating_questions')).toBe(true);
     });
+
+    it('should regenerate tokens to match settings.totalRounds', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      // Change settings to 15 rounds
+      updateSettings(channelId, 'user1', { totalRounds: 15 });
+      
+      const session = await startGame(channelId, 'user1');
+      
+      expect(session).not.toBeNull();
+      // Total tokens should be 15
+      const totalTokens = Object.values(session!.players[0].tokenCounts).reduce((a, b) => a + b, 0);
+      expect(totalTokens).toBe(15);
+      // Score should be reset
+      expect(session!.players[0].score).toBe(0);
+      expect(session!.players[0].usedTokens).toEqual([]);
+    });
   });
 
   describe('cancelGeneration', () => {
@@ -473,12 +521,16 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1,2,3,4,5,6,7,8,9,10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,
         isSpectator: true,
         joinedAt: Date.now(),
+        powerUps: [],
+        streak: { current: 0, best: 0 },
+        gambit: null,
+        lastAnswerTime: null,
       });
       session.currentPhase = 'voting';
       
@@ -495,7 +547,7 @@ describe('GameManager', () => {
       
       const session = getSession(channelId)!;
       session.currentPhase = 'voting';
-      session.players[0].availableTokens = [1, 2, 3]; // Token 5 not available
+      session.players[0].tokenCounts = { 1: 1, 2: 1, 3: 1 }; // Token 5 not available
       
       const result = submitVote(channelId, 'user1', 0, 5);
       expect(result).toBeNull();
@@ -527,7 +579,7 @@ describe('GameManager', () => {
       
       const session = getSession(channelId)!;
       session.currentPhase = 'voting';
-      session.players[0].availableTokens = [3, 5, 7]; // Lowest is 3
+      session.players[0].tokenCounts = { 3: 1, 5: 1, 7: 1 }; // Lowest is 3
       
       const result = autoVote(channelId, 'user1');
       
@@ -549,6 +601,8 @@ describe('GameManager', () => {
         answer: 0,
         token: 5,
         submittedAt: Date.now(),
+        powerUpUsed: null,
+        eliminatedOptions: null,
       });
       
       const result = autoVote(channelId, 'user1');
@@ -706,7 +760,7 @@ describe('GameManager', () => {
       expect(result?.currentPhase).toBe('lobby');
       expect(result?.currentRound).toBe(0);
       expect(result?.players[0].score).toBe(0);
-      expect(result?.players[0].availableTokens).toEqual([1,2,3,4,5,6,7,8,9,10]);
+      expect(result?.players[0].tokenCounts).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 });
       expect(result?.questionHistory).toEqual([]);
     });
 
@@ -720,12 +774,16 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1,2,3,4,5,6,7,8,9,10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,
         isSpectator: true,
         joinedAt: Date.now(),
+        powerUps: [],
+        streak: { current: 0, best: 0 },
+        gambit: null,
+        lastAnswerTime: null,
       });
       
       const result = resetGame(channelId, 'host');
@@ -749,7 +807,7 @@ describe('GameManager', () => {
       session.currentRound = session.totalRounds;
       session.players[0].score = 25;
       session.players[0].usedTokens = [5, 10];
-      session.players[0].availableTokens = [1, 2, 3, 4, 6, 7, 8, 9];
+      session.players[0].tokenCounts = { 1: 1, 2: 1, 3: 1, 4: 1, 6: 1, 7: 1, 8: 1, 9: 1 };
       
       const result = await playAgain(channelId, 'user1');
       
@@ -757,7 +815,7 @@ describe('GameManager', () => {
       expect(result?.currentPhase).toBe('question');
       expect(result?.currentRound).toBe(1);
       expect(result?.players[0].score).toBe(0);
-      expect(result?.players[0].availableTokens).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      expect(result?.players[0].tokenCounts).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 });
       expect(result?.questionHistory.length).toBeGreaterThan(0);
     });
 
@@ -795,12 +853,16 @@ describe('GameManager', () => {
         id: spectator.id,
         discordUser: spectator,
         score: 0,
-        availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        tokenCounts: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 },
         usedTokens: [],
         isHost: false,
         isConnected: true,
         isSpectator: true,
         joinedAt: Date.now(),
+        powerUps: [],
+        streak: { current: 0, best: 0 },
+        gambit: null,
+        lastAnswerTime: null,
       });
       
       const result = await playAgain(channelId, 'host');
@@ -886,6 +948,678 @@ describe('GameManager', () => {
       expect(analytics).toHaveProperty('sessions');
       expect(analytics).toHaveProperty('timestamp');
       expect(analytics.overview.totalSessions).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ============================================
+  // New Game Mechanics Tests
+  // ============================================
+
+  describe('New Player Properties', () => {
+    it('should initialize player with power-ups', () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      const { player } = getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      expect(player.powerUps).toHaveLength(3);
+      expect(player.powerUps.every(p => p.used === false)).toBe(true);
+    });
+
+    it('should initialize player with streak state', () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      const { player } = getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      expect(player.streak).toEqual({ current: 0, best: 0 });
+    });
+
+    it('should initialize player with null gambit', () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      const { player } = getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      expect(player.gambit).toBeNull();
+    });
+
+    it('should reset power-ups on game start', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      const { session } = getOrCreateSession(channelId, '', '', user, 'browser');
+      
+      // Simulate used power-up
+      session.players[0].powerUps[0].used = true;
+      
+      await startGame(channelId, 'user1');
+      
+      const updatedSession = getSession(channelId);
+      expect(updatedSession?.players[0].powerUps.every(p => p.used === false)).toBe(true);
+    });
+
+    it('should reset streak on game start', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      const { session } = getOrCreateSession(channelId, '', '', user, 'browser');
+      session.players[0].streak = { current: 5, best: 5 };
+      
+      await startGame(channelId, 'user1');
+      
+      const updatedSession = getSession(channelId);
+      expect(updatedSession?.players[0].streak).toEqual({ current: 0, best: 0 });
+    });
+  });
+
+  describe('Power-up Voting', () => {
+    it('should submit vote with power-up', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      
+      const result = submitVote(channelId, 'user1', 0, 5, 'double-down', null);
+      
+      expect(result?.votes[0].powerUpUsed).toBe('double-down');
+    });
+
+    it('should reject vote with unavailable power-up', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      // Mark power-up as used
+      session.players[0].powerUps.find(p => p.type === 'double-down')!.used = true;
+      
+      const result = submitVote(channelId, 'user1', 0, 5, 'double-down', null);
+      
+      // Vote should still be submitted, but without the power-up
+      expect(result?.votes[0].powerUpUsed).toBeNull();
+    });
+
+    it('should include eliminated options for 50/50', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      
+      const result = submitVote(channelId, 'user1', 0, 5, '50-50', [1, 2]);
+      
+      expect(result?.votes[0].eliminatedOptions).toEqual([1, 2]);
+    });
+  });
+
+  describe('activateGambit', () => {
+    it('should activate gambit at 3rd-to-last round', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentRound = 8; // 3rd-to-last for 10 rounds
+      
+      const result = activateGambit(channelId, 'user1');
+      
+      expect(result).not.toBeNull();
+      expect(result?.players[0].gambit).not.toBeNull();
+      expect(result?.players[0].gambit?.isActive).toBe(true);
+      expect(result?.players[0].gambit?.stakeTokenValue).toBe(10);
+      expect(result?.players[0].gambit?.consecutiveCorrect).toBe(0);
+    });
+
+    it('should reject gambit at wrong round', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentRound = 5; // Not 3rd-to-last
+      
+      const result = activateGambit(channelId, 'user1');
+      
+      expect(result).toBeNull();
+    });
+
+    it('should reject gambit if already active', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentRound = 8;
+      session.players[0].gambit = {
+        isActive: true,
+        startedAtRound: 8,
+        stakeTokenValue: 10,
+        consecutiveCorrect: 0,
+        completed: false,
+        won: false,
+      };
+      
+      const result = activateGambit(channelId, 'user1');
+      
+      expect(result).toBeNull();
+    });
+
+    it('should use highest available token as stake', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentRound = 8;
+      session.players[0].tokenCounts = { 1: 1, 2: 1, 3: 1, 7: 1 }; // Highest is 7
+      
+      const result = activateGambit(channelId, 'user1');
+      
+      expect(result?.players[0].gambit?.stakeTokenValue).toBe(7);
+    });
+  });
+
+  describe('Token Trading', () => {
+    describe('tradeTokensUp', () => {
+      it('should trade 2 tokens for 1 higher value (2N capped at 10)', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        session.players[0].tokenCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 2, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
+        
+        const result = tradeTokensUp(channelId, 'user1', 5);
+        
+        // 2x5 → 1x min(10, 10) = 1x10
+        expect(result?.players[0].tokenCounts[5]).toBe(0);
+        expect(result?.players[0].tokenCounts[10]).toBe(1);
+      });
+
+      it('should reject trade without enough tokens', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        session.players[0].tokenCounts[5] = 1; // Only 1, need 2
+        
+        const result = tradeTokensUp(channelId, 'user1', 5);
+        
+        expect(result).toBeNull();
+      });
+
+      it('should allow fusing value 10 (2x10 → 1x10)', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        session.players[0].tokenCounts[10] = 2;
+        
+        const result = tradeTokensUp(channelId, 'user1', 10);
+        
+        // Fusing 2x10 gives 1x10 (capped at 10), but still allowed
+        expect(result).not.toBeNull();
+        expect(result?.players[0].tokenCounts[10]).toBe(1);
+      });
+
+      it('should work in question phase', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'question';
+        session.players[0].tokenCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 2, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
+        
+        const result = tradeTokensUp(channelId, 'user1', 5);
+        
+        expect(result).not.toBeNull();
+      });
+
+      it('should reject trade during voting phase', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'voting';
+        session.players[0].tokenCounts[5] = 2;
+        
+        const result = tradeTokensUp(channelId, 'user1', 5);
+        
+        expect(result).toBeNull();
+      });
+    });
+
+    describe('tradeTokensDown', () => {
+      it('should trade 1 token for 2 lower value', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        session.players[0].tokenCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 1, 7: 0, 8: 0, 9: 0, 10: 0 };
+        
+        const result = tradeTokensDown(channelId, 'user1', 6);
+        
+        expect(result?.players[0].tokenCounts[6]).toBe(0);
+        expect(result?.players[0].tokenCounts[3]).toBe(2); // floor(6/2) = 3
+      });
+
+      it('should reject trade from value 1 (cannot trade further down)', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        
+        const result = tradeTokensDown(channelId, 'user1', 1);
+        
+        expect(result).toBeNull();
+      });
+
+      it('should allow trade from value 2 (gives 2x value 1)', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        
+        const result = tradeTokensDown(channelId, 'user1', 2);
+        
+        expect(result).not.toBeNull();
+        expect(result?.players[0].tokenCounts[2]).toBe(0);
+        expect(result?.players[0].tokenCounts[1]).toBe(3); // Original 1 + 2 new
+      });
+
+      it('should handle odd-valued tokens correctly', () => {
+        const channelId = getUniqueChannelId();
+        const user = createUser('user1');
+        
+        getOrCreateSession(channelId, '', '', user, 'browser');
+        
+        const session = getSession(channelId)!;
+        session.currentPhase = 'lobby';
+        session.players[0].tokenCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 1, 8: 0, 9: 0, 10: 0 };
+        
+        const result = tradeTokensDown(channelId, 'user1', 7);
+        
+        expect(result?.players[0].tokenCounts[7]).toBe(0);
+        // floor(7/2) = 3, ceil(7/2) = 4, so 1x3 + 1x4
+        expect(result?.players[0].tokenCounts[3]).toBe(1);
+        expect(result?.players[0].tokenCounts[4]).toBe(1);
+      });
+    });
+  });
+
+  describe('get5050Options', () => {
+    it('should return 2 wrong options for multiple choice', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test question?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0, // A is correct
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      const eliminatedOptions = get5050Options(channelId, 'user1');
+      
+      expect(eliminatedOptions).toHaveLength(2);
+      expect(eliminatedOptions).not.toContain(0); // Should not contain correct answer
+    });
+
+    it('should return null if 50/50 already used', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test question?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      // Mark 50/50 as used
+      session.players[0].powerUps.find(p => p.type === '50-50')!.used = true;
+      
+      const result = get5050Options(channelId, 'user1');
+      
+      expect(result).toBeNull();
+    });
+
+    it('should return null for non-multiple-choice questions', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'tf1',
+        type: 'true-false',
+        text: 'Is this true?',
+        correctAnswer: true,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      const result = get5050Options(channelId, 'user1');
+      
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Scoring with New Mechanics', () => {
+    it('should apply streak bonus on consecutive correct answers', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      // Simulate existing streak
+      session.players[0].streak = { current: 2, best: 2 };
+      
+      submitVote(channelId, 'user1', 0, 5, null, null); // Correct answer
+      
+      const updatedSession = getSession(channelId)!;
+      // Score should be 5 (token) + 2 (streak bonus for 3 streak) = 7
+      expect(updatedSession.players[0].score).toBe(7);
+      expect(updatedSession.players[0].streak.current).toBe(3);
+    });
+
+    it('should reset streak on wrong answer', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      session.players[0].streak = { current: 3, best: 3 };
+      
+      submitVote(channelId, 'user1', 1, 5, null, null); // Wrong answer
+      
+      const updatedSession = getSession(channelId)!;
+      expect(updatedSession.players[0].streak.current).toBe(0);
+      expect(updatedSession.players[0].streak.best).toBe(3); // Best unchanged
+    });
+
+    it('should apply safety net on wrong answer', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      const originalToken5Count = session.players[0].tokenCounts[5];
+      
+      submitVote(channelId, 'user1', 1, 5, 'safety-net', null); // Wrong answer with safety net
+      
+      const updatedSession = getSession(channelId)!;
+      // Token should not be decremented due to safety net
+      expect(updatedSession.players[0].tokenCounts[5]).toBe(originalToken5Count);
+      expect(updatedSession.players[0].powerUps.find(p => p.type === 'safety-net')?.used).toBe(true);
+    });
+
+    it('should double score with double-down on correct answer', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      submitVote(channelId, 'user1', 0, 5, 'double-down', null); // Correct with double-down
+      
+      const updatedSession = getSession(channelId)!;
+      // Score should be 5 * 2 = 10
+      expect(updatedSession.players[0].score).toBe(10);
+    });
+
+    it('should apply speed demon bonus for fast answers', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      const now = Date.now();
+      session.votingPhaseStartedAt = now - 1000; // Started 1 second ago
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      submitVote(channelId, 'user1', 0, 5, null, null); // Correct answer
+      
+      const updatedSession = getSession(channelId)!;
+      // Score should be 5 + 2 (speed demon) = 7
+      expect(updatedSession.players[0].score).toBe(7);
+    });
+
+    it('should progress gambit on correct answer', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentRound = 8;
+      session.players[0].gambit = {
+        isActive: true,
+        startedAtRound: 8,
+        stakeTokenValue: 10,
+        consecutiveCorrect: 1,
+        completed: false,
+        won: false,
+      };
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      submitVote(channelId, 'user1', 0, 5, null, null);
+      
+      const updatedSession = getSession(channelId)!;
+      expect(updatedSession.players[0].gambit?.consecutiveCorrect).toBe(2);
+    });
+
+    it('should complete gambit with reward on 3 consecutive correct', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentRound = 10;
+      session.players[0].gambit = {
+        isActive: true,
+        startedAtRound: 8,
+        stakeTokenValue: 10,
+        consecutiveCorrect: 2,
+        completed: false,
+        won: false,
+      };
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      submitVote(channelId, 'user1', 0, 5, null, null);
+      
+      const updatedSession = getSession(channelId)!;
+      expect(updatedSession.players[0].gambit?.completed).toBe(true);
+      expect(updatedSession.players[0].gambit?.won).toBe(true);
+      // Score should include gambit reward: 5 (token) + 20 (gambit reward = 10 * 2)
+      expect(updatedSession.players[0].score).toBe(25);
+    });
+
+    it('should fail gambit with penalty on wrong answer', async () => {
+      const channelId = getUniqueChannelId();
+      const user = createUser('user1');
+      
+      getOrCreateSession(channelId, '', '', user, 'browser');
+      await startGame(channelId, 'user1');
+      
+      const session = getSession(channelId)!;
+      session.currentPhase = 'voting';
+      session.currentRound = 9;
+      session.players[0].score = 30;
+      session.players[0].gambit = {
+        isActive: true,
+        startedAtRound: 8,
+        stakeTokenValue: 10,
+        consecutiveCorrect: 1,
+        completed: false,
+        won: false,
+      };
+      session.currentQuestion = {
+        id: 'mc1',
+        type: 'multiple-choice',
+        text: 'Test?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        category: 'test',
+        difficulty: 'easy',
+        explanation: 'Test',
+      };
+      
+      submitVote(channelId, 'user1', 1, 5, null, null); // Wrong answer
+      
+      const updatedSession = getSession(channelId)!;
+      expect(updatedSession.players[0].gambit?.completed).toBe(true);
+      expect(updatedSession.players[0].gambit?.won).toBe(false);
+      // Score should be reduced by stake: 30 - 10 = 20
+      expect(updatedSession.players[0].score).toBe(20);
     });
   });
 });

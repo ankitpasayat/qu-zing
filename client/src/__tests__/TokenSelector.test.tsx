@@ -3,6 +3,15 @@ import { render, screen } from './test-utils';
 import userEvent from '@testing-library/user-event';
 import { TokenSelector } from '../components/TokenSelector';
 
+// Helper to create tokenCounts from array
+function createTokenCounts(tokens: number[]): Record<number, number> {
+  const counts: Record<number, number> = {};
+  tokens.forEach(t => {
+    counts[t] = (counts[t] || 0) + 1;
+  });
+  return counts;
+}
+
 describe('TokenSelector Component', () => {
   const mockOnSelect = vi.fn();
 
@@ -15,7 +24,7 @@ describe('TokenSelector Component', () => {
 
     render(
       <TokenSelector
-        availableTokens={tokens}
+        tokenCounts={createTokenCounts(tokens)}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -29,14 +38,14 @@ describe('TokenSelector Component', () => {
   it('should show no tokens message when empty', () => {
     render(
       <TokenSelector
-        availableTokens={[]}
+        tokenCounts={{}}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
     );
 
     expect(screen.getByText('No tokens remaining!')).toBeInTheDocument();
-    expect(screen.getByText("You'll still earn points, just at 1x")).toBeInTheDocument();
+    expect(screen.getByText(/You'll still earn points, just at 1x/i)).toBeInTheDocument();
   });
 
   it('should call onSelect when clicking a token', async () => {
@@ -44,7 +53,7 @@ describe('TokenSelector Component', () => {
 
     render(
       <TokenSelector
-        availableTokens={[1, 2, 3]}
+        tokenCounts={createTokenCounts([1, 2, 3])}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -58,7 +67,7 @@ describe('TokenSelector Component', () => {
   it('should show bet information prompt', () => {
     render(
       <TokenSelector
-        availableTokens={[1, 2, 3]}
+        tokenCounts={createTokenCounts([1, 2, 3])}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -70,7 +79,7 @@ describe('TokenSelector Component', () => {
   it('should show point information when token is selected', () => {
     render(
       <TokenSelector
-        availableTokens={[1, 2, 3, 5]}
+        tokenCounts={createTokenCounts([1, 2, 3, 5])}
         selectedToken={5}
         onSelect={mockOnSelect}
       />
@@ -82,7 +91,7 @@ describe('TokenSelector Component', () => {
   it('should not show point information when no token selected', () => {
     render(
       <TokenSelector
-        availableTokens={[1, 2, 3]}
+        tokenCounts={createTokenCounts([1, 2, 3])}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -94,7 +103,7 @@ describe('TokenSelector Component', () => {
   it('should render tokens in sorted order', () => {
     render(
       <TokenSelector
-        availableTokens={[5, 1, 3, 2]}
+        tokenCounts={createTokenCounts([5, 1, 3, 2])}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -111,7 +120,7 @@ describe('TokenSelector Component', () => {
 
     render(
       <TokenSelector
-        availableTokens={allTokens}
+        tokenCounts={createTokenCounts(allTokens)}
         selectedToken={null}
         onSelect={mockOnSelect}
       />
@@ -125,14 +134,14 @@ describe('TokenSelector Component', () => {
   it('should highlight selected token with larger scale', () => {
     const { container } = render(
       <TokenSelector
-        availableTokens={[1, 2, 3]}
+        tokenCounts={createTokenCounts([1, 2, 3])}
         selectedToken={2}
         onSelect={mockOnSelect}
       />
     );
 
     const buttons = container.querySelectorAll('button');
-    const selectedButton = Array.from(buttons).find((btn) => btn.textContent === '2');
+    const selectedButton = Array.from(buttons).find((btn) => btn.textContent?.includes('2'));
 
     expect(selectedButton).toHaveClass('scale-110');
   });
@@ -140,17 +149,48 @@ describe('TokenSelector Component', () => {
   it('should not highlight non-selected tokens', () => {
     const { container } = render(
       <TokenSelector
-        availableTokens={[1, 2, 3]}
+        tokenCounts={createTokenCounts([1, 2, 3])}
         selectedToken={2}
         onSelect={mockOnSelect}
       />
     );
 
     const buttons = container.querySelectorAll('button');
-    const nonSelectedButtons = Array.from(buttons).filter((btn) => btn.textContent !== '2');
+    const nonSelectedButtons = Array.from(buttons).filter((btn) => !btn.textContent?.includes('2'));
 
     nonSelectedButtons.forEach((btn) => {
       expect(btn).not.toHaveClass('scale-110');
+    });
+  });
+
+  describe('Stacked Tokens', () => {
+    it('should show stack count badge for multiple tokens', () => {
+      // 2x token "10"
+      render(
+        <TokenSelector
+          tokenCounts={{ 10: 2 }}
+          selectedToken={null}
+          onSelect={mockOnSelect}
+        />
+      );
+
+      expect(screen.getByText('2')).toBeInTheDocument(); // Stack count badge
+      expect(screen.getByText('10')).toBeInTheDocument(); // Token value
+    });
+
+    it('should not show badge for single tokens', () => {
+      render(
+        <TokenSelector
+          tokenCounts={{ 5: 1 }}
+          selectedToken={null}
+          onSelect={mockOnSelect}
+        />
+      );
+
+      expect(screen.getByText('5')).toBeInTheDocument();
+      // No badge should exist
+      const buttons = screen.getAllByRole('button');
+      expect(buttons.length).toBe(1);
     });
   });
 
@@ -158,14 +198,14 @@ describe('TokenSelector Component', () => {
     it('should show disabled message when disabled', () => {
       render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={true}
         />
       );
 
-      expect(screen.getByText('Select an answer first to bet a token')).toBeInTheDocument();
+      expect(screen.getByText(/Select an answer first/i)).toBeInTheDocument();
     });
 
     it('should not call onSelect when disabled', async () => {
@@ -173,7 +213,7 @@ describe('TokenSelector Component', () => {
 
       render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={true}
@@ -190,7 +230,7 @@ describe('TokenSelector Component', () => {
     it('should apply disabled styling to tokens', () => {
       const { container } = render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={true}
@@ -208,7 +248,7 @@ describe('TokenSelector Component', () => {
     it('should have aria-disabled attribute when disabled', () => {
       const { container } = render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={true}
@@ -224,7 +264,7 @@ describe('TokenSelector Component', () => {
     it('should show disabled tooltip on tokens when disabled', () => {
       const { container } = render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={true}
@@ -240,16 +280,16 @@ describe('TokenSelector Component', () => {
     it('should show bet tooltip on tokens when enabled', () => {
       render(
         <TokenSelector
-          availableTokens={[1, 2, 3]}
+          tokenCounts={createTokenCounts([1, 2, 3])}
           selectedToken={null}
           onSelect={mockOnSelect}
           disabled={false}
         />
       );
 
-      expect(screen.getByTitle('Bet 1 point')).toBeInTheDocument();
-      expect(screen.getByTitle('Bet 2 points')).toBeInTheDocument();
-      expect(screen.getByTitle('Bet 3 points')).toBeInTheDocument();
+      expect(screen.getByTitle(/Bet 1 point/)).toBeInTheDocument();
+      expect(screen.getByTitle(/Bet 2 points/)).toBeInTheDocument();
+      expect(screen.getByTitle(/Bet 3 points/)).toBeInTheDocument();
     });
   });
 });

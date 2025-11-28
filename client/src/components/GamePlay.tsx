@@ -1,22 +1,29 @@
 import { useState, useEffect, useRef } from 'react';
-import type { GameSession, Player, Question, PlayerVote } from '../types/game';
-import { getDisplayName } from '../types/game';
+import type { GameSession, Player, Question, PlayerVote, PowerUpType } from '../types/game';
+import { getDisplayName, getAvailableTokens, canActivateGambit } from '../types/game';
 import { PlayerAvatar } from './PlayerAvatar';
 import { TokenSelector } from './TokenSelector';
-import { ThemeToggle } from './ThemeToggle';
-import { LobbyCodeDisplay } from './BrowserLobby';
+import { TokenTrading } from './TokenTrading';
+import { PowerUpSelector } from './PowerUpSelector';
+import { GameControls } from './GameControls';
+import { GambitPrompt, GambitStatus } from './GambitPrompt';
+import { StreakIndicator, StreakBadge } from './StreakIndicator';
+import { useSoundEffects, type SoundType } from '../hooks/useSoundEffects';
+import { copyToClipboard } from '../lib/platform';
 
-// Countdown Timer Component
+// Countdown Timer Component - Fun game style
 function CountdownTimer({ 
   duration, 
   startedAt,
   onComplete, 
-  label = "Time remaining"
+  label = "Time remaining",
+  playSound
 }: { 
   duration: number;
   startedAt?: number | null; // Server timestamp when timer started
   onComplete: () => void; 
   label?: string;
+  playSound?: (type: 'countdown' | 'countdownFinal') => void;
 }) {
   // Calculate initial time left based on server sync (use function to defer Date.now() call)
   const [timeLeft, setTimeLeft] = useState(() => {
@@ -26,10 +33,18 @@ function CountdownTimer({
     }
     return duration;
   });
-  const [progress, setProgress] = useState(100);
+  // Initialize progress based on elapsed time to sync with timer
+  const [progress, setProgress] = useState(() => {
+    if (startedAt) {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, duration * 1000 - elapsed);
+      return (remaining / (duration * 1000)) * 100;
+    }
+    return 100;
+  });
   const onCompleteRef = useRef(onComplete);
   const startTimeRef = useRef<number>(0);
-  const animationFrameRef = useRef<number>(0);
+  const lastSoundTimeRef = useRef<number>(-1);
   
   // Keep the ref updated with the latest callback
   useEffect(() => {
@@ -41,30 +56,30 @@ function CountdownTimer({
     startTimeRef.current = startedAt || Date.now();
     let completed = false;
     
-    // Update progress bar smoothly with requestAnimationFrame
-    const updateProgress = () => {
+    // Reset progress immediately when effect runs
+    const initialElapsed = Date.now() - startTimeRef.current;
+    const initialRemaining = Math.max(0, duration * 1000 - initialElapsed);
+    const initialProgress = (initialRemaining / (duration * 1000)) * 100;
+    setProgress(initialProgress);
+    setTimeLeft(Math.max(0, Math.ceil(initialRemaining / 1000)));
+    
+    // Update both progress bar and time display in a single interval for sync
+    const interval = setInterval(() => {
       const elapsed = Date.now() - startTimeRef.current;
-      const remaining = Math.max(0, duration * 1000 - elapsed);
-      const newProgress = (remaining / (duration * 1000)) * 100;
+      const remainingMs = Math.max(0, duration * 1000 - elapsed);
+      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+      const newProgress = (remainingMs / (duration * 1000)) * 100;
       
       setProgress(newProgress);
+      setTimeLeft(remainingSec);
       
-      if (remaining > 0) {
-        animationFrameRef.current = requestAnimationFrame(updateProgress);
+      // Play countdown sounds for last 3 seconds
+      if (playSound && remainingSec <= 3 && remainingSec > 0 && lastSoundTimeRef.current !== remainingSec) {
+        lastSoundTimeRef.current = remainingSec;
+        playSound(remainingSec === 1 ? 'countdownFinal' : 'countdown');
       }
-    };
-    
-    // Start smooth progress animation
-    animationFrameRef.current = requestAnimationFrame(updateProgress);
-    
-    // Update time display based on actual elapsed time
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      const remaining = Math.max(0, duration - elapsed);
       
-      setTimeLeft(remaining);
-      
-      if (remaining <= 0) {
+      if (remainingMs <= 0) {
         clearInterval(interval);
         if (!completed) {
           completed = true;
@@ -72,29 +87,35 @@ function CountdownTimer({
           setTimeout(() => onCompleteRef.current(), 100);
         }
       }
-    }, 100); // Update more frequently for accuracy
+    }, 16); // ~60fps for smooth progress bar animation
 
     return () => {
       clearInterval(interval);
-      cancelAnimationFrame(animationFrameRef.current);
       completed = true; // Prevent callback if component unmounts
     };
-  }, [duration, startedAt]);
+  }, [duration, startedAt, playSound]);
 
-  // Calculate color based on progress (100% = purple, 0% = deep red)
-  // Interpolate between purple (#a855f7) and deep red (#dc2626)
+  // Calculate color based on progress (100% = green, 0% = red)
   const getProgressColor = (progressPercent: number) => {
-    // Purple RGB: 168, 85, 247
-    // Deep Red RGB: 220, 38, 38
-    const purpleR = 168, purpleG = 85, purpleB = 247;
-    const redR = 220, redG = 38, redB = 38;
+    // Green RGB: 34, 197, 94
+    // Yellow RGB: 250, 204, 21
+    // Red RGB: 239, 68, 68
+    const t = 1 - progressPercent / 100;
     
-    // Use a curve to make the transition more dramatic in the last 40%
-    const t = Math.pow(1 - progressPercent / 100, 1.3);
-    
-    const r = Math.round(purpleR + (redR - purpleR) * t);
-    const g = Math.round(purpleG + (redG - purpleG) * t);
-    const b = Math.round(purpleB + (redB - purpleB) * t);
+    let r, g, b;
+    if (t < 0.5) {
+      // Green to Yellow
+      const localT = t * 2;
+      r = Math.round(34 + (250 - 34) * localT);
+      g = Math.round(197 + (204 - 197) * localT);
+      b = Math.round(94 + (21 - 94) * localT);
+    } else {
+      // Yellow to Red
+      const localT = (t - 0.5) * 2;
+      r = Math.round(250 + (239 - 250) * localT);
+      g = Math.round(204 + (68 - 204) * localT);
+      b = Math.round(21 + (68 - 21) * localT);
+    }
     
     return `rgb(${r}, ${g}, ${b})`;
   };
@@ -103,22 +124,31 @@ function CountdownTimer({
   const isUrgent = timeLeft <= 3;
 
   return (
-    <div className="w-full max-w-sm mt-8 mx-auto">
-      <div className="text-center mb-3">
-        <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+    <div className="w-full max-w-sm mt-6 mx-auto">
+      <div className="text-center mb-2">
+        <span className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide">{label}</span>
         <div 
-          className={`text-4xl font-bold mt-1 ${isUrgent ? 'animate-pulse' : ''}`}
-          style={{ color: progressColor }}
+          className={`text-5xl font-black mt-1 transition-transform ${isUrgent ? 'animate-countdown-urgent' : ''}`}
+          style={{ 
+            color: progressColor,
+            textShadow: isUrgent ? `0 0 20px ${progressColor}` : 'none'
+          }}
         >
-          {timeLeft}s
+          {timeLeft}
         </div>
       </div>
-      <div className="w-full h-3 bg-purple-200/50 dark:bg-purple-900/30 rounded-full overflow-hidden border border-purple-300/50 dark:border-purple-700/30">
+      <div 
+        className="w-full h-4 rounded-full overflow-hidden border-3 border-gray-800 dark:border-white"
+        style={{ 
+          background: 'var(--bg-secondary)',
+          boxShadow: '3px 3px 0 var(--text-primary)'
+        }}
+      >
         <div 
-          className="h-full"
+          className="h-full transition-all duration-100 rounded-full"
           style={{ 
             width: `${progress}%`, 
-            background: `linear-gradient(90deg, ${progressColor}, ${getProgressColor(Math.max(0, progress - 20))})` 
+            background: `linear-gradient(90deg, ${progressColor}, ${getProgressColor(Math.max(0, progress - 30))})` 
           }}
         />
       </div>
@@ -131,9 +161,13 @@ interface GamePlayProps {
   currentPlayer: Player;
   isHost: boolean;
   onChangePhase: (phase: string) => void;
-  onSubmitVote: (answer: number | boolean, token: number) => void;
+  onSubmitVote: (answer: number | boolean, token: number, powerUpUsed?: PowerUpType | null, eliminatedOptions?: number[] | null) => void;
   onAutoVote?: (playerId: string) => void;
   onExitGame?: () => void;
+  onRequest5050?: () => Promise<number[] | null>;
+  onActivateGambit?: () => void;
+  onTradeUp?: (sourceValue: number) => void;
+  onTradeDown?: (sourceValue: number) => void;
 }
 
 export function GamePlay({ 
@@ -143,14 +177,24 @@ export function GamePlay({
   onChangePhase, 
   onSubmitVote,
   onAutoVote,
-  onExitGame 
+  onExitGame,
+  onRequest5050,
+  onActivateGambit,
+  onTradeUp,
+  onTradeDown
 }: GamePlayProps) {
+  const { playSound } = useSoundEffects();
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showGambitPrompt, setShowGambitPrompt] = useState(false);
+  const [hasDeclinedGambit, setHasDeclinedGambit] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   // Track question/phase to reset selections
   const questionPhaseKey = `${session.currentQuestion?.id || 'no-q'}-${session.currentPhase}`;
   const [lastResetKey, setLastResetKey] = useState(questionPhaseKey);
   const [selectedAnswer, setSelectedAnswer] = useState<number | boolean | null>(null);
   const [selectedToken, setSelectedToken] = useState<number | null>(null);
+  const [selectedPowerUp, setSelectedPowerUp] = useState<PowerUpType | null>(null);
+  const [eliminatedOptions, setEliminatedOptions] = useState<number[] | null>(null);
 
   // Reset selections when question/phase changes (but only if not a spectator)
   // Spectators shouldn't have their state reset since they can't vote anyway
@@ -158,6 +202,8 @@ export function GamePlay({
     setLastResetKey(questionPhaseKey);
     setSelectedAnswer(null);
     setSelectedToken(null);
+    setSelectedPowerUp(null);
+    setEliminatedOptions(null);
   }
   
   const { currentPhase, currentQuestion, currentRound, totalRounds, votes, players } = session;
@@ -167,20 +213,85 @@ export function GamePlay({
   // During the brief moment of promotion, isSpectator flag might be stale
   const isInSpectatorsArray = session.spectators?.some(s => s.id === currentPlayer.id) ?? false;
   const isSpectator = currentPlayer.isSpectator || isInSpectatorsArray;
+  
+  const isBrowserMode = session.platform === 'browser';
+
+  const handleCopyCode = async () => {
+    const success = await copyToClipboard(session.channelId);
+    if (success) {
+      setCodeCopied(true);
+      playSound('ding');
+      setTimeout(() => setCodeCopied(false), 2000);
+    }
+  };
+
+  // Show gambit prompt at 3rd-to-last round if player is eligible
+  // Track the round where we last checked to prevent showing multiple times
+  const lastCheckedRound = useRef<number | null>(null);
+  
+  useEffect(() => {
+    const canShowGambit = 
+      canActivateGambit(currentRound, totalRounds) &&
+      !currentPlayer.gambit?.isActive &&
+      !hasDeclinedGambit &&
+      !isSpectator &&
+      currentPhase === 'question';
+    
+    // Only show prompt if conditions are met and we haven't already checked this round
+    if (canShowGambit && lastCheckedRound.current !== currentRound) {
+      lastCheckedRound.current = currentRound;
+      // Use requestAnimationFrame to avoid synchronous setState in effect
+      requestAnimationFrame(() => {
+        setShowGambitPrompt(true);
+      });
+    }
+  }, [currentRound, totalRounds, currentPlayer.gambit, hasDeclinedGambit, isSpectator, currentPhase]);
+
+  const handleActivateGambit = () => {
+    setShowGambitPrompt(false);
+    playSound('spring'); // Goofy spring sound for gambit activation
+    setTimeout(() => playSound('rimshot'), 150); // Add a rimshot for dramatic effect
+    onActivateGambit?.();
+  };
+
+  const handleDismissGambit = () => {
+    setShowGambitPrompt(false);
+    setHasDeclinedGambit(true);
+  };
 
   const handleSubmit = () => {
     if (selectedAnswer !== null && selectedToken !== null && !hasVoted) {
-      onSubmitVote(selectedAnswer, selectedToken);
+      playSound('pop'); // Satisfying pop for vote submission
+      onSubmitVote(selectedAnswer, selectedToken, selectedPowerUp, eliminatedOptions);
     }
+  };
+
+  // Handle 50/50 power-up request
+  const handle5050Request = async () => {
+    if (onRequest5050 && !eliminatedOptions) {
+      playSound('kazoo'); // Goofy kazoo for token trade
+      const options = await onRequest5050();
+      if (options) {
+        setEliminatedOptions(options);
+        setSelectedPowerUp('50-50');
+      }
+    }
+  };
+
+  // Handle answer selection with animation and sound
+  const handleAnswerSelect = (answer: number | boolean) => {
+    playSound('whoosh'); // Whoosh for 50-50 elimination
+    setSelectedAnswer(answer);
   };
 
   const handleVotingTimeout = () => {
     // Auto-submit for current player if they haven't voted
     if (!hasVoted && !isSpectator && currentQuestion) {
       // Use selected values if available, otherwise use defaults
+      const availableTokens = getAvailableTokens(currentPlayer.tokenCounts);
       const token = selectedToken !== null 
         ? selectedToken 
-        : Math.min(...currentPlayer.availableTokens);
+        : Math.min(...availableTokens);
       const answer = selectedAnswer !== null 
         ? selectedAnswer 
         : getRandomAnswer(currentQuestion);
@@ -218,21 +329,15 @@ export function GamePlay({
   // Check if solo mode (only one active player)
   const activePlayerCount = players.filter((p: Player) => !p.isSpectator).length;
   const isSoloMode = activePlayerCount === 1;
-  const isBrowserMode = session.platform === 'browser';
 
-  // Compact lobby code display for browser mode during gameplay
-  const lobbyCodeBadge = isBrowserMode && (
-    <div className="absolute top-4 right-16 z-10">
-      <LobbyCodeDisplay lobbyCode={session.channelId} compact />
-    </div>
-  );
-
-  // Exit confirmation modal content
+  // Exit confirmation modal content - goofy style
   const exitConfirmModal = showExitConfirm && (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-[#231942] rounded-2xl p-6 max-w-sm w-full border-2 border-purple-300 dark:border-purple-700/50 shadow-xl">
-        <h3 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">Exit Game?</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="goofy-panel p-6 max-w-sm w-full animate-pop-in" style={{ transform: 'rotate(-1deg)' }}>
+        <h3 className="text-xl font-black mb-3 text-gray-900 dark:text-white flex items-center gap-2">
+          <span className="text-2xl">🚪</span> Exit Game?
+        </h3>
+        <p className="text-gray-600 dark:text-gray-400 mb-6 font-medium">
           {isSoloMode 
             ? "Are you sure you want to end your solo game? Your progress will be lost."
             : "Are you sure you want to leave the game? You can rejoin later if the game is still in progress."
@@ -241,18 +346,18 @@ export function GamePlay({
         <div className="flex gap-3">
           <button
             onClick={() => setShowExitConfirm(false)}
-            className="flex-1 py-3 px-4 bg-gray-200 dark:bg-purple-900/50 hover:bg-gray-300 dark:hover:bg-purple-800/50 text-gray-700 dark:text-gray-300 font-medium rounded-xl transition-colors"
+            className="comic-button-secondary flex-1 py-3 px-4 rounded-xl"
           >
-            Cancel
+            Stay
           </button>
           <button
             onClick={() => {
               setShowExitConfirm(false);
               onExitGame?.();
             }}
-            className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 px-4 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white font-bold rounded-xl border-3 border-gray-800 dark:border-white shadow-[3px_3px_0_#2d1b4e] dark:shadow-[3px_3px_0_#f8f5ff] transition-all hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[2px] active:translate-y-[2px]"
           >
-            Exit Game
+            Exit
           </button>
         </div>
       </div>
@@ -264,47 +369,43 @@ export function GamePlay({
     // Show a special "waiting to join" screen for spectators during question phase
     if (isSpectator) {
       return (
-        <div className="min-h-screen flex flex-col p-4 safe-area-inset bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-[#0f0a1e] dark:via-[#1a1033] dark:to-[#231942] text-gray-900 dark:text-white transition-colors duration-300">
+        <div className="min-h-screen flex flex-col p-4 pt-16 safe-area-inset bg-gradient-to-br from-orange-50 via-pink-50 to-purple-100 dark:from-[#0c0618] dark:via-[#150d28] dark:to-[#1e1038] text-gray-900 dark:text-white transition-colors duration-300">
           {exitConfirmModal}
-          <ThemeToggle />
-          {lobbyCodeBadge}
-          <button
-            onClick={() => setShowExitConfirm(true)}
-            className="absolute top-4 left-4 p-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors z-10"
-            title="Exit game"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          <GameControls 
+            showExitButton
+            onExit={() => setShowExitConfirm(true)}
+            lobbyCode={isBrowserMode ? session.channelId : undefined}
+            onCopyCode={handleCopyCode}
+            codeCopied={codeCopied}
+          />
           
           <div className="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full text-center">
-            <div className="text-6xl mb-6">🎮</div>
-            <h2 className="text-2xl md:text-3xl font-bold mb-3 bg-gradient-to-r from-purple-500 to-indigo-500 dark:from-purple-400 dark:to-indigo-400 bg-clip-text text-transparent">
+            <div className="text-6xl mb-6 animate-bounce-happy">🎮</div>
+            <h2 className="text-2xl md:text-3xl font-black mb-3 bg-gradient-to-r from-purple-500 to-indigo-500 dark:from-purple-400 dark:to-indigo-400 bg-clip-text text-transparent">
               You're In!
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-8">
+            <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium">
               A round is currently in progress. You'll join the action on the next question!
             </p>
             
-            <div className="w-full bg-white/80 dark:bg-[#231942]/70 border border-purple-200/50 dark:border-purple-700/30 rounded-2xl p-6 shadow-lg mb-6">
+            <div className="w-full goofy-panel p-6 mb-6" style={{ transform: 'rotate(-1deg)' }}>
               <div className="flex justify-between items-center mb-4">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Game Progress</span>
-                <span className="text-sm font-medium px-3 py-1 bg-amber-100/80 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/40 rounded-full text-amber-700 dark:text-amber-300">
+                <span className="text-sm font-bold text-gray-500 dark:text-gray-400">Game Progress</span>
+                <span className="text-sm font-bold px-3 py-1 bg-gradient-to-r from-amber-400 to-orange-400 border-2 border-gray-800 dark:border-white rounded-full text-gray-800">
                   {currentQuestion.category}
                 </span>
               </div>
               <div className="flex items-center justify-center gap-2 mb-2">
-                <span className="text-3xl font-bold text-purple-600 dark:text-purple-400">{currentRound}</span>
-                <span className="text-gray-400 dark:text-gray-500">/</span>
-                <span className="text-xl text-gray-600 dark:text-gray-400">{totalRounds}</span>
+                <span className="text-4xl font-black text-purple-600 dark:text-purple-400">{currentRound}</span>
+                <span className="text-gray-400 dark:text-gray-500 text-xl">/</span>
+                <span className="text-2xl font-bold text-gray-600 dark:text-gray-400">{totalRounds}</span>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">questions completed</p>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">questions completed</p>
             </div>
             
             <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
-              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-              <span className="text-sm">Waiting for current round to finish...</span>
+              <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-bold">Waiting for current round to finish...</span>
             </div>
           </div>
         </div>
@@ -312,25 +413,43 @@ export function GamePlay({
     }
 
     return (
-      <div className="min-h-screen flex flex-col p-4 safe-area-inset bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-[#0f0a1e] dark:via-[#1a1033] dark:to-[#231942] text-gray-900 dark:text-white transition-colors duration-300">
+      <div className="min-h-screen flex flex-col p-4 pt-16 safe-area-inset bg-gradient-to-br from-orange-50 via-pink-50 to-purple-100 dark:from-[#0c0618] dark:via-[#150d28] dark:to-[#1e1038] text-gray-900 dark:text-white transition-colors duration-300">
         {exitConfirmModal}
-        <ThemeToggle />
-        {lobbyCodeBadge}
-        {/* Exit button */}
-        <button
-          onClick={() => setShowExitConfirm(true)}
-          className="absolute top-4 left-4 p-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors z-10"
-          title="Exit game"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-        </button>
+        {/* Gambit Prompt Modal */}
+        {showGambitPrompt && (
+          <GambitPrompt
+            player={currentPlayer}
+            currentRound={currentRound}
+            totalRounds={totalRounds}
+            onActivate={handleActivateGambit}
+            onDismiss={handleDismissGambit}
+          />
+        )}
+        <GameControls 
+          showExitButton
+          onExit={() => setShowExitConfirm(true)}
+          lobbyCode={isBrowserMode ? session.channelId : undefined}
+          onCopyCode={handleCopyCode}
+          codeCopied={codeCopied}
+        />
+        
         <div className="mb-4">
-          <h2 className="text-center text-xl md:text-2xl font-bold mb-3 bg-gradient-to-r from-yellow-500 to-orange-500 dark:from-yellow-400 dark:to-orange-400 bg-clip-text text-transparent">
-            Next Question
+          <h2 className="text-center text-xl md:text-2xl font-black mb-3 bg-gradient-to-r from-yellow-500 to-orange-500 dark:from-yellow-400 dark:to-orange-400 bg-clip-text text-transparent animate-pop-in">
+            📖 Next Question
           </h2>
           <Header round={currentRound} totalRounds={totalRounds} category={currentQuestion.category} />
+          {/* Streak Indicator */}
+          {currentPlayer.streak.current >= 2 && (
+            <div className="flex justify-center mt-3">
+              <StreakIndicator streak={currentPlayer.streak} gambit={currentPlayer.gambit} />
+            </div>
+          )}
+          {/* Gambit Status */}
+          {currentPlayer.gambit?.isActive && (
+            <div className="flex justify-center mt-2">
+              <GambitStatus gambit={currentPlayer.gambit} />
+            </div>
+          )}
         </div>
         
         <div className="flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
@@ -342,6 +461,7 @@ export function GamePlay({
             startedAt={session.questionPhaseStartedAt}
             onComplete={isHost ? () => onChangePhase('voting') : () => {}}
             label="Starting in"
+            playSound={playSound}
           />
         </div>
       </div>
@@ -355,33 +475,29 @@ export function GamePlay({
     // Show a special "waiting to join" screen for spectators during voting phase
     if (isSpectator) {
       return (
-        <div className="min-h-screen flex flex-col p-4 safe-area-inset bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-[#0f0a1e] dark:via-[#1a1033] dark:to-[#231942] text-gray-900 dark:text-white transition-colors duration-300">
+        <div className="min-h-screen flex flex-col p-4 pt-16 safe-area-inset bg-gradient-to-br from-orange-50 via-pink-50 to-purple-100 dark:from-[#0c0618] dark:via-[#150d28] dark:to-[#1e1038] text-gray-900 dark:text-white transition-colors duration-300">
           {exitConfirmModal}
-          <ThemeToggle />
-          {lobbyCodeBadge}
-          <button
-            onClick={() => setShowExitConfirm(true)}
-            className="absolute top-4 left-4 p-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors z-10"
-            title="Exit game"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          <GameControls 
+            showExitButton
+            onExit={() => setShowExitConfirm(true)}
+            lobbyCode={isBrowserMode ? session.channelId : undefined}
+            onCopyCode={handleCopyCode}
+            codeCopied={codeCopied}
+          />
           
           <div className="flex-1 flex flex-col items-center justify-center max-w-md mx-auto w-full text-center">
-            <div className="text-6xl mb-6">⏳</div>
-            <h2 className="text-2xl md:text-3xl font-bold mb-3 bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+            <div className="text-6xl mb-6 animate-pulse-slow">⏳</div>
+            <h2 className="text-2xl md:text-3xl font-black mb-3 bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
               Round in Progress
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-8">
+            <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium">
               Players are answering the current question. Get ready for the next one!
             </p>
             
-            <div className="w-full bg-white/80 dark:bg-[#231942]/70 border border-purple-200/50 dark:border-purple-700/30 rounded-2xl p-6 shadow-lg mb-6">
+            <div className="w-full goofy-panel p-6 mb-6" style={{ transform: 'rotate(0.5deg)' }}>
               <div className="flex justify-between items-center mb-4">
-                <span className="text-sm text-gray-500 dark:text-gray-400">Voting Progress</span>
-                <span className="text-sm font-medium px-3 py-1 bg-emerald-100/80 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/40 rounded-full text-emerald-700 dark:text-emerald-300">
+                <span className="text-sm font-bold text-gray-500 dark:text-gray-400">Voting Progress</span>
+                <span className="text-sm font-bold px-3 py-1 bg-gradient-to-r from-green-400 to-emerald-400 border-2 border-gray-800 dark:border-white rounded-full text-gray-800">
                   {votes.length}/{activePlayers.length} voted
                 </span>
               </div>
@@ -392,22 +508,22 @@ export function GamePlay({
                   return (
                     <div 
                       key={player.id}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-gray-800 dark:border-white shadow-[2px_2px_0_#2d1b4e] dark:shadow-[2px_2px_0_#f8f5ff] ${
                         hasPlayerVoted 
-                          ? 'bg-green-100 dark:bg-green-500/20 border-green-300 dark:border-green-500/40' 
-                          : 'bg-gray-100 dark:bg-gray-800/50 border-gray-300 dark:border-gray-600/40'
+                          ? 'bg-green-200 dark:bg-green-500/30' 
+                          : 'bg-gray-100 dark:bg-gray-800/50'
                       }`}
                     >
                       <PlayerAvatar user={player.discordUser} size={24} />
-                      <span className="text-sm font-medium">{getDisplayName(player.discordUser)}</span>
-                      {hasPlayerVoted && <span className="text-green-600 dark:text-green-400">✓</span>}
+                      <span className="text-sm font-bold">{getDisplayName(player.discordUser)}</span>
+                      {hasPlayerVoted && <span className="text-green-600 dark:text-green-400 font-bold">✓</span>}
                     </div>
                   );
                 })}
               </div>
             </div>
             
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-sm font-bold text-gray-500 dark:text-gray-400">
               Round {currentRound} of {totalRounds} • {currentQuestion.category}
             </div>
           </div>
@@ -416,23 +532,19 @@ export function GamePlay({
     }
     
     return (
-      <div className="min-h-screen flex flex-col p-4 pb-32 safe-area-inset bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-[#0f0a1e] dark:via-[#1a1033] dark:to-[#231942] text-gray-900 dark:text-white transition-colors duration-300">
+      <div className="min-h-screen flex flex-col p-4 pt-16 pb-32 safe-area-inset bg-gradient-to-br from-orange-50 via-pink-50 to-purple-100 dark:from-[#0c0618] dark:via-[#150d28] dark:to-[#1e1038] text-gray-900 dark:text-white transition-colors duration-300">
         {exitConfirmModal}
-        <ThemeToggle />
-        {lobbyCodeBadge}
-        {/* Exit button */}
-        <button
-          onClick={() => setShowExitConfirm(true)}
-          className="absolute top-4 left-4 p-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors z-10"
-          title="Exit game"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-        </button>
-        <div className="mb-6 md:mb-8">
-          <h2 className="text-center text-xl md:text-2xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
-            Make Your Choice
+        <GameControls 
+          showExitButton
+          onExit={() => setShowExitConfirm(true)}
+          lobbyCode={isBrowserMode ? session.channelId : undefined}
+          onCopyCode={handleCopyCode}
+          codeCopied={codeCopied}
+        />
+        
+        <div className="mb-4 md:mb-6">
+          <h2 className="text-center text-xl md:text-2xl font-black mb-3 bg-gradient-to-r from-blue-500 to-purple-500 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent animate-pop-in">
+            🎯 Make Your Choice!
           </h2>
           <Header 
             round={currentRound} 
@@ -441,6 +553,18 @@ export function GamePlay({
             votedCount={votes.length}
             totalPlayers={activePlayers.length}
           />
+          {/* Streak Indicator */}
+          {currentPlayer.streak.current >= 2 && (
+            <div className="flex justify-center mt-3">
+              <StreakIndicator streak={currentPlayer.streak} gambit={currentPlayer.gambit} />
+            </div>
+          )}
+          {/* Gambit Status */}
+          {currentPlayer.gambit?.isActive && (
+            <div className="flex justify-center mt-2">
+              <GambitStatus gambit={currentPlayer.gambit} />
+            </div>
+          )}
         </div>
         
         <div className="flex-1 flex flex-col max-w-2xl mx-auto w-full">
@@ -452,12 +576,15 @@ export function GamePlay({
             startedAt={session.votingPhaseStartedAt}
             onComplete={handleVotingTimeout}
             label="Time to answer"
+            playSound={playSound}
           />
           
           {hasVoted ? (
-            <div className="mt-6 text-center p-6 bg-green-100 dark:bg-green-500/20 border border-green-400 dark:border-green-500/40 rounded-xl shadow-lg">
-              <p className="text-green-700 dark:text-green-300 font-medium text-lg">Vote Submitted! ✓</p>
-              <p className="text-sm text-green-600 dark:text-green-400/70 mt-1">
+            <div className="mt-6 text-center p-6 goofy-panel bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 animate-pop-in" style={{ transform: 'rotate(1deg)' }}>
+              <p className="text-green-700 dark:text-green-300 font-black text-lg flex items-center justify-center gap-2">
+                <span className="text-2xl">✅</span> Vote Submitted!
+              </p>
+              <p className="text-sm font-bold text-green-600 dark:text-green-400/70 mt-1">
                 Waiting for others... ({votes.length}/{activePlayers.length})
               </p>
             </div>
@@ -466,24 +593,48 @@ export function GamePlay({
               <AnswerOptions 
                 question={currentQuestion} 
                 selectedAnswer={selectedAnswer}
-                onSelect={setSelectedAnswer}
+                onSelect={handleAnswerSelect}
+                eliminatedOptions={eliminatedOptions}
               />
               
               <TokenSelector
-                availableTokens={currentPlayer.availableTokens}
+                tokenCounts={currentPlayer.tokenCounts}
                 selectedToken={selectedToken}
                 onSelect={setSelectedToken}
                 disabled={selectedAnswer === null}
               />
               
+              {/* Token Trading - available during voting */}
+              {onTradeUp && onTradeDown && (
+                <div className="mt-4">
+                  <TokenTrading
+                    tokenCounts={currentPlayer.tokenCounts}
+                    onTradeUp={onTradeUp}
+                    onTradeDown={onTradeDown}
+                    disabled={hasVoted}
+                  />
+                </div>
+              )}
+              
+              <PowerUpSelector
+                powerUps={currentPlayer.powerUps}
+                selectedPowerUp={selectedPowerUp}
+                onSelect={setSelectedPowerUp}
+                question={currentQuestion}
+                disabled={hasVoted}
+                eliminatedOptions={eliminatedOptions}
+                onRequest5050={handle5050Request}
+              />
+              
               <button
                 onClick={handleSubmit}
                 disabled={selectedAnswer === null || selectedToken === null}
-                className="w-full mt-6 py-4 px-6 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 disabled:from-gray-700 disabled:to-gray-800 disabled:text-gray-500 text-white font-bold rounded-xl shadow-lg transform transition-all active:scale-95 disabled:cursor-not-allowed"
+                className="comic-button w-full mt-6 py-4 px-6 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none text-lg"
+                style={{ transform: 'rotate(-0.5deg)' }}
               >
                 {selectedAnswer !== null && selectedToken !== null 
-                  ? 'Submit Vote' 
-                  : 'Select answer and token'}
+                  ? '🚀 Submit Vote!' 
+                  : '👆 Select answer and token'}
               </button>
             </>
           )}
@@ -495,23 +646,19 @@ export function GamePlay({
   // Reveal Phase
   if (currentPhase === 'reveal' && currentQuestion) {
     return (
-      <div className="min-h-screen flex flex-col p-4 pb-24 safe-area-inset bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-[#0f0a1e] dark:via-[#1a1033] dark:to-[#231942] text-gray-900 dark:text-white transition-colors duration-300">
+      <div className="min-h-screen flex flex-col p-4 pt-16 pb-24 safe-area-inset bg-gradient-to-br from-orange-50 via-pink-50 to-purple-100 dark:from-[#0c0618] dark:via-[#150d28] dark:to-[#1e1038] text-gray-900 dark:text-white transition-colors duration-300">
         {exitConfirmModal}
-        <ThemeToggle />
-        {lobbyCodeBadge}
-        {/* Exit button */}
-        <button
-          onClick={() => setShowExitConfirm(true)}
-          className="absolute top-4 left-4 p-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors z-10"
-          title="Exit game"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-        </button>
+        <GameControls 
+          showExitButton
+          onExit={() => setShowExitConfirm(true)}
+          lobbyCode={isBrowserMode ? session.channelId : undefined}
+          onCopyCode={handleCopyCode}
+          codeCopied={codeCopied}
+        />
+        
         <div className="mb-4">
-          <h2 className="text-center text-xl md:text-2xl font-bold mb-3 bg-gradient-to-r from-green-500 to-blue-500 dark:from-green-400 dark:to-blue-400 bg-clip-text text-transparent">
-            The Answer
+          <h2 className="text-center text-xl md:text-2xl font-black mb-3 bg-gradient-to-r from-green-500 to-blue-500 dark:from-green-400 dark:to-blue-400 bg-clip-text text-transparent animate-pop-in">
+            🎉 The Answer!
           </h2>
           <Header round={currentRound} totalRounds={totalRounds} category={currentQuestion.category} />
         </div>
@@ -522,6 +669,7 @@ export function GamePlay({
             votes={votes}
             players={players}
             currentPlayerId={currentPlayer.id}
+            playSound={playSound}
           />
           
           <CountdownTimer
@@ -530,6 +678,7 @@ export function GamePlay({
             startedAt={session.revealPhaseStartedAt}
             onComplete={isHost ? () => onChangePhase('question') : () => {}}
             label={currentRound >= totalRounds ? 'Final results in' : 'Next question in'}
+            playSound={playSound}
           />
         </div>
       </div>
@@ -584,29 +733,38 @@ function QuestionDisplay({ question, compact = false }: { question: Question; co
 function AnswerOptions({ 
   question, 
   selectedAnswer, 
-  onSelect 
+  onSelect,
+  eliminatedOptions = null
 }: { 
   question: Question; 
   selectedAnswer: number | boolean | null;
   onSelect: (answer: number | boolean) => void;
+  eliminatedOptions?: number[] | null;
 }) {
   if (question.type === 'multiple-choice') {
     return (
       <div className="mt-4 space-y-3">
-        {question.options.map((option, index) => (
-          <button
-            key={index}
-            onClick={() => onSelect(index)}
-            className={`w-full p-4 rounded-xl text-left font-medium transition-all
-              ${selectedAnswer === index 
-                ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white ring-2 ring-purple-400 shadow-lg' 
-                : 'bg-white/80 dark:bg-[#231942]/60 hover:bg-purple-50 dark:hover:bg-[#2d1f4e]/70 border border-purple-200/50 dark:border-purple-700/40'
-              }`}
-          >
-            <span className="font-bold mr-2">{String.fromCharCode(65 + index)}.</span>
-            {option}
-          </button>
-        ))}
+        {question.options.map((option, index) => {
+          const isEliminated = eliminatedOptions?.includes(index);
+          return (
+            <button
+              key={index}
+              onClick={() => !isEliminated && onSelect(index)}
+              disabled={isEliminated}
+              className={`w-full p-4 rounded-xl text-left font-medium transition-all
+                ${isEliminated
+                  ? 'opacity-40 cursor-not-allowed bg-gray-200 dark:bg-gray-800 line-through text-gray-500 dark:text-gray-600'
+                  : selectedAnswer === index 
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white ring-2 ring-purple-400 shadow-lg' 
+                    : 'bg-white/80 dark:bg-[#231942]/60 hover:bg-purple-50 dark:hover:bg-[#2d1f4e]/70 border border-purple-200/50 dark:border-purple-700/40'
+                }`}
+            >
+              <span className="font-bold mr-2">{String.fromCharCode(65 + index)}.</span>
+              {option}
+              {isEliminated && <span className="ml-2 text-red-500">✗</span>}
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -691,13 +849,17 @@ function RevealDisplay({
   question, 
   votes, 
   players,
-  currentPlayerId 
+  currentPlayerId,
+  playSound
 }: { 
   question: Question;
   votes: PlayerVote[];
   players: Player[];
   currentPlayerId: string;
+  playSound?: (type: SoundType) => void;
 }) {
+  const hasPlayedSoundRef = useRef(false);
+  
   const getCorrectAnswerDisplay = (): string => {
     switch (question.type) {
       case 'multiple-choice':
@@ -723,10 +885,30 @@ function RevealDisplay({
     return vote.answer === question.correctAnswer;
   };
 
+  // Play sound for current player's result (only once)
+  const currentPlayerVote = votes.find((v: PlayerVote) => v.playerId === currentPlayerId);
+  const currentPlayerCorrect = currentPlayerVote && isAnswerCorrect(currentPlayerVote);
+  
+  useEffect(() => {
+    if (playSound && currentPlayerVote && !hasPlayedSoundRef.current) {
+      hasPlayedSoundRef.current = true;
+      // Use goofier sounds for correct/wrong
+      if (currentPlayerCorrect) {
+        playSound('correct');
+        // Add celebration sounds
+        setTimeout(() => playSound('ding'), 150);
+        setTimeout(() => playSound('boing'), 300);
+      } else {
+        playSound('wahwah'); // Sad trombone style
+        setTimeout(() => playSound('bonk'), 200);
+      }
+    }
+  }, [playSound, currentPlayerVote, currentPlayerCorrect]);
+
   return (
     <>
       {/* Correct Answer */}
-      <div className="bg-green-100 dark:bg-green-500/20 border-2 border-green-400 dark:border-green-500/50 rounded-2xl p-6 mb-6">
+      <div className="bg-green-100 dark:bg-green-500/20 border-2 border-green-400 dark:border-green-500/50 rounded-2xl p-6 mb-6 animate-pop-in">
         <p className="text-sm text-green-700 dark:text-green-300 mb-2">Correct Answer:</p>
         <p className="text-xl font-semibold text-gray-900 dark:text-white">{getCorrectAnswerDisplay()}</p>
         <p className="text-sm text-gray-700 dark:text-gray-300 mt-4">{question.explanation}</p>
@@ -734,7 +916,7 @@ function RevealDisplay({
 
       {/* Player Results */}
       <div className="space-y-3">
-        {players.map((player) => {
+        {players.map((player, index) => {
           const vote = votes.find((v: PlayerVote) => v.playerId === player.id);
           const isCorrect = vote && isAnswerCorrect(vote);
           const isCurrentPlayer = player.id === currentPlayerId;
@@ -742,18 +924,25 @@ function RevealDisplay({
           return (
             <div 
               key={player.id}
-              className={`p-4 rounded-xl flex items-center justify-between
+              className={`p-4 rounded-xl flex items-center justify-between animate-slide-in-up
                 ${isCorrect 
                   ? 'bg-green-100 dark:bg-green-500/20 border-2 border-green-400 dark:border-green-500/40' 
                   : 'bg-white/70 dark:bg-[#231942]/50 border border-purple-200/50 dark:border-purple-700/30'
                 }
                 ${isCurrentPlayer ? 'ring-2 ring-purple-500/50' : ''}
+                ${isCurrentPlayer && isCorrect ? 'animate-bounce-happy' : ''}
+                ${isCurrentPlayer && vote && !isCorrect ? 'animate-shake' : ''}
               `}
+              style={{ animationDelay: `${index * 100}ms` }}
             >
               <div className="flex items-center gap-3">
                 <PlayerAvatar user={player.discordUser} size={36} />
                 <div>
-                  <p className="font-medium">{getDisplayName(player.discordUser)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{getDisplayName(player.discordUser)}</p>
+                    <StreakBadge streak={player.streak} gambit={player.gambit} />
+                    {player.gambit?.isActive && <GambitStatus gambit={player.gambit} />}
+                  </div>
                   {vote && (
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       Token {vote.token} • {isCorrect ? '+' + vote.token : 'missed'}
@@ -763,7 +952,7 @@ function RevealDisplay({
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold">{player.score}</p>
+                <p className={`text-2xl font-bold ${isCorrect && isCurrentPlayer ? 'animate-score-pop' : ''}`}>{player.score}</p>
                 <p className="text-xs text-gray-600 dark:text-gray-400">pts</p>
               </div>
             </div>

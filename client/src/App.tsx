@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { initializeDiscord, inviteFriends, resetDiscordState } from './discord';
+import { initializeDiscord, inviteFriends } from './discord';
 import { useGameEvents, useGameApi } from './hooks/useGameEvents';
 import { Lobby } from './components/Lobby';
 import { GamePlay } from './components/GamePlay';
@@ -12,7 +12,7 @@ import { detectPlatform, generateLobbyCode, getBrowserUserData, updateBrowserUse
 import Analytics from './pages/Analytics';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
-import type { DiscordUser, Player, GameSettings, GameSession, Platform } from './types/game';
+import type { DiscordUser, Player, GameSettings, GameSession, Platform, PowerUpType } from './types/game';
 
 // Initialize debug logger
 initDebugLogger();
@@ -198,6 +198,8 @@ function App() {
   const [optimisticSettings, setOptimisticSettings] = useState<Partial<GameSettings> | null>(null);
   // Track pending settings to know when server has confirmed them
   const pendingSettingsRef = useRef<Partial<GameSettings> | null>(null);
+  // Counter to force socket reconnection after exit game
+  const [reconnectKey, setReconnectKey] = useState(0);
 
   const handleGameUpdate = useCallback((updatedSession: GameSession) => {
     // Only clear optimistic settings if the server state now matches what we sent
@@ -218,7 +220,7 @@ function App() {
     }
   }, []);
 
-  const { session, isConnected, error: connectionError, socket } = useGameEvents({
+  const { session, isConnected, error: connectionError, socket, markAsExited } = useGameEvents({
     channelId: discordData?.channelId ?? null,
     playerId,
     onUpdate: handleGameUpdate,
@@ -227,6 +229,7 @@ function App() {
     instanceId: discordData?.instanceId ?? '',
     user: discordData?.user,
     platform: platform ?? 'discord',
+    reconnectKey,
   });
 
   const api = useGameApi(discordData?.channelId ?? null, socket);
@@ -252,29 +255,31 @@ function App() {
     
     try {
       console.log('🚪 Exiting game...');
+      // Mark as exited BEFORE calling the API to prevent double-leave in cleanup
+      markAsExited();
       await api.exitGame(playerId);
       
       // Reset state to return to lobby
-      setDiscordData(null);
-      setPlayerId(null);
       setInitialSession(null);
       
       if (platform === 'browser') {
         // Browser mode - show lobby setup again
+        setDiscordData(null);
+        setPlayerId(null);
         setShowBrowserLobbySetup(true);
         // Clear lobby code from URL
         window.history.replaceState({}, '', window.location.pathname);
       } else {
-        // Discord mode - reset app state but keep SDK authentication
-        // The SDK is already authenticated, we just need to rejoin the session
-        resetDiscordState(true); // Keep SDK state to avoid re-authorization
-        initSucceededRef.current = false;
-        initDiscord();
+        // Discord mode - force socket reconnection by incrementing key
+        // This ensures a fresh socket connection even though channelId/playerId stay the same
+        setReconnectKey(prev => prev + 1);
+        // Also clear and reset the session state
+        setInitialSession(null);
       }
     } catch (err) {
       console.error('Failed to exit game:', err);
     }
-  }, [playerId, platform, api, initDiscord]);
+  }, [playerId, platform, api, markAsExited]);
 
   // Find current player
   const currentPlayer = session?.players.find((p: Player) => p.id === playerId) 
@@ -459,6 +464,28 @@ function App() {
               console.error('Failed to cancel generation:', err);
             }
           }}
+          onTradeUp={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeUp(playerId!, sourceValue);
+              console.log('🔄 Trade up result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade up:', err);
+            }
+          }}
+          onTradeDown={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeDown(playerId!, sourceValue);
+              console.log('🔄 Trade down result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade down:', err);
+            }
+          }}
         />
       )}
 
@@ -479,9 +506,9 @@ function App() {
               console.error('Failed to change phase:', err);
             }
           }}
-          onSubmitVote={async (answer: number | boolean, token: number) => {
+          onSubmitVote={async (answer: number | boolean, token: number, powerUpUsed?: PowerUpType | null, eliminatedOptions?: number[] | null) => {
             try {
-              const result = await api.submitVote(playerId!, answer, token);
+              const result = await api.submitVote(playerId!, answer, token, powerUpUsed, eliminatedOptions);
               // Update session immediately from API response
               if (result.success && result.session) {
                 setInitialSession(result.session);
@@ -502,6 +529,47 @@ function App() {
             }
           }}
           onExitGame={handleExitGame}
+          onRequest5050={async () => {
+            try {
+              return await api.get5050(playerId!);
+            } catch (err) {
+              console.error('Failed to get 50/50 options:', err);
+              return null;
+            }
+          }}
+          onActivateGambit={async () => {
+            try {
+              const result = await api.activateGambit(playerId!);
+              console.log('🎲 Gambit activated:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to activate gambit:', err);
+            }
+          }}
+          onTradeUp={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeUp(playerId!, sourceValue);
+              console.log('🔄 Trade up result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade up:', err);
+            }
+          }}
+          onTradeDown={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeDown(playerId!, sourceValue);
+              console.log('🔄 Trade down result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade down:', err);
+            }
+          }}
         />
       )}
 

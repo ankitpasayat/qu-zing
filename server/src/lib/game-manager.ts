@@ -7,7 +7,18 @@ import {
   GameSettings,
   DEFAULT_SETTINGS,
   GamePhase,
-  Platform
+  Platform,
+  generateTokenCounts,
+  getAvailableTokens,
+  getInitialPowerUps,
+  PowerUpType,
+  isSpeedDemon,
+  getStreakBonus,
+  qualifiesForComebackBonus,
+  getHighestAvailableToken,
+  COMEBACK_MULTIPLIER,
+  SPEED_DEMON_BONUS,
+  getGambitReward
 } from '../types/game.js';
 import { getRandomQuestions } from './questions.js';
 import { logger } from './logger.js';
@@ -82,12 +93,17 @@ export function getOrCreateSession(
       id: user.id,
       discordUser: user,
       score: 0,
-      availableTokens: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      tokenCounts: generateTokenCounts(session.settings.totalRounds),
       usedTokens: [],
       isHost: session.players.length === 0 && !isGameInProgress, // First non-spectator player is host
       isConnected: true,
       isSpectator: isGameInProgress, // Always join as spectator if game is in progress
       joinedAt: Date.now(),
+      // New game mechanics
+      powerUps: getInitialPowerUps(),
+      streak: { current: 0, best: 0 },
+      gambit: null,
+      lastAnswerTime: null,
     };
     
     // If this is the first player and no host exists, make them host
@@ -252,8 +268,21 @@ export function updateSettings(channelId: string, hostId: string, settings: Part
   if (!session || session.hostId !== hostId) return null;
   if (session.currentPhase !== 'lobby' && session.currentPhase !== 'waiting') return null;
 
+  // Check if totalRounds is changing
+  const totalRoundsChanged = settings.totalRounds !== undefined && 
+    settings.totalRounds !== session.settings.totalRounds;
+
   session.settings = { ...session.settings, ...settings };
   session.lastActivity = Date.now();
+
+  // Regenerate token counts for all players when totalRounds changes
+  if (totalRoundsChanged) {
+    const newTotalRounds = session.settings.totalRounds;
+    [...session.players, ...session.spectators].forEach((player: Player) => {
+      player.tokenCounts = generateTokenCounts(newTotalRounds);
+    });
+    logger.info(`Token counts regenerated for ${newTotalRounds} rounds in channel ${channelId}`);
+  }
   
   logger.info(`Settings updated in channel ${channelId}`, settings);
   return session;
@@ -282,6 +311,19 @@ export async function startGame(channelId: string, hostId: string, broadcastFn?:
     logger.warn(`startGame failed: no active players (count: ${activePlayerCount})`);
     return null;
   }
+
+  // Regenerate token counts for all players to match current totalRounds setting
+  const totalRounds = session.settings.totalRounds;
+  session.players.forEach((player: Player) => {
+    player.tokenCounts = generateTokenCounts(totalRounds);
+    player.usedTokens = [];
+    player.score = 0;
+    // Reset new game mechanics
+    player.powerUps = getInitialPowerUps();
+    player.streak = { current: 0, best: 0 };
+    player.gambit = null;
+    player.lastAnswerTime = null;
+  });
 
   // Create abort controller for this generation
   const abortController = new AbortController();
@@ -401,24 +443,47 @@ export function submitVote(
   channelId: string, 
   playerId: string, 
   answer: number | boolean, 
-  token: number
+  token: number,
+  powerUpUsed: PowerUpType | null = null,
+  eliminatedOptions: number[] | null = null
 ): GameSession | null {
   const session = gameSessions.get(channelId);
   if (!session || session.currentPhase !== 'voting') return null;
 
   const player = session.players.find((p: Player) => p.id === playerId);
   if (!player || player.isSpectator) return null;
-  if (!player.availableTokens.includes(token)) return null;
+  if (!player.tokenCounts[token] || player.tokenCounts[token] <= 0) return null;
 
+  // Validate power-up usage
+  if (powerUpUsed) {
+    const powerUp = player.powerUps.find(p => p.type === powerUpUsed && !p.used);
+    if (!powerUp) {
+      logger.warn(`Player ${playerId} tried to use unavailable power-up ${powerUpUsed}`);
+      powerUpUsed = null;
+    }
+  }
+
+  const submittedAt = Date.now();
+  
   // Update or add vote
   const existingVoteIndex = session.votes.findIndex((v: PlayerVote) => v.playerId === playerId);
-  const vote: PlayerVote = { playerId, answer, token, submittedAt: Date.now() };
+  const vote: PlayerVote = { 
+    playerId, 
+    answer, 
+    token, 
+    submittedAt,
+    powerUpUsed,
+    eliminatedOptions
+  };
   
   if (existingVoteIndex >= 0) {
     session.votes[existingVoteIndex] = vote;
   } else {
     session.votes.push(vote);
   }
+  
+  // Track last answer time for Speed Demon
+  player.lastAnswerTime = submittedAt;
 
   session.lastActivity = Date.now();
 
@@ -428,7 +493,7 @@ export function submitVote(
     processRoundResults(session);
   }
 
-  logger.info(`Vote submitted by ${playerId} in channel ${channelId}`);
+  logger.info(`Vote submitted by ${playerId} in channel ${channelId}${powerUpUsed ? ` with power-up ${powerUpUsed}` : ''}`);
   return session;
 }
 
@@ -445,7 +510,9 @@ export function autoVote(channelId: string, playerId: string): GameSession | nul
   if (hasVoted) return session;
 
   // Get lowest available token
-  const lowestToken = Math.min(...player.availableTokens);
+  const availableTokens = getAvailableTokens(player.tokenCounts);
+  if (availableTokens.length === 0) return session;
+  const lowestToken = Math.min(...availableTokens);
   
   // Generate random answer based on question type
   const question = session.currentQuestion;
@@ -480,12 +547,14 @@ export function autoVote(channelId: string, playerId: string): GameSession | nul
       randomAnswer = 0;
   }
 
-  // Submit auto-vote
+  // Submit auto-vote (no power-ups for auto-votes)
   const vote: PlayerVote = { 
     playerId, 
     answer: randomAnswer, 
     token: lowestToken, 
-    submittedAt: Date.now() 
+    submittedAt: Date.now(),
+    powerUpUsed: null,
+    eliminatedOptions: null
   };
   session.votes.push(vote);
   session.lastActivity = Date.now();
@@ -510,20 +579,107 @@ function processRoundResults(session: GameSession): void {
   session.revealPhaseStartedAt = now; // Set timestamp for reveal phase timer sync
   session.lastActivity = now;
   const question = session.currentQuestion;
+  
+  // Get all player scores for comeback bonus calculation
+  const allScores = session.players
+    .filter((p: Player) => !p.isSpectator)
+    .map((p: Player) => p.score);
 
   session.votes.forEach((vote: PlayerVote) => {
     const player = session.players.find((p: Player) => p.id === vote.playerId);
     if (!player) return;
 
-    // Remove token from available
-    player.availableTokens = player.availableTokens.filter((t: number) => t !== vote.token);
-
     // Check if answer is correct
     const isCorrect = checkAnswer(question, vote.answer);
     
+    // Handle Safety Net power-up: if incorrect and safety net used, don't lose token
+    const usedSafetyNet = vote.powerUpUsed === 'safety-net';
+    
     if (isCorrect) {
-      player.score += vote.token;
+      // Update streak
+      player.streak.current += 1;
+      if (player.streak.current > player.streak.best) {
+        player.streak.best = player.streak.current;
+      }
+      
+      // Calculate score with all multipliers and bonuses
+      let baseScore = vote.token;
+      
+      // Double Down (x2)
+      const usedDoubleDown = vote.powerUpUsed === 'double-down';
+      if (usedDoubleDown) {
+        baseScore *= 2;
+      }
+      
+      // Comeback Bonus (x1.2) for bottom 50% players
+      const hasComeback = qualifiesForComebackBonus(player.score, allScores);
+      if (hasComeback) {
+        baseScore = Math.floor(baseScore * COMEBACK_MULTIPLIER);
+      }
+      
+      // Streak Bonus (+1/2/3)
+      const streakBonus = getStreakBonus(player.streak.current);
+      
+      // Speed Demon Bonus (+2 for answers within 3 seconds)
+      const isSpeedDemonAnswer = isSpeedDemon(session.votingPhaseStartedAt, vote.submittedAt);
+      const speedDemonBonus = isSpeedDemonAnswer ? SPEED_DEMON_BONUS : 0;
+      
+      // Final score for this round
+      const roundScore = baseScore + streakBonus + speedDemonBonus;
+      player.score += roundScore;
       player.usedTokens.push(vote.token);
+      
+      // Decrement token count (remove one from the stack)
+      if (player.tokenCounts[vote.token] > 0) {
+        player.tokenCounts[vote.token]--;
+      }
+      
+      // Handle Gambit progress
+      if (player.gambit && player.gambit.isActive && !player.gambit.completed) {
+        player.gambit.consecutiveCorrect += 1;
+        
+        // Check if gambit is won (3 consecutive correct)
+        if (player.gambit.consecutiveCorrect >= 3) {
+          player.gambit.completed = true;
+          player.gambit.won = true;
+          const gambitReward = getGambitReward(player.gambit.stakeTokenValue);
+          player.score += gambitReward;
+          logger.info(`Player ${player.id} won the Gambit! Reward: +${gambitReward}`);
+        }
+      }
+      
+      logger.debug(`Player ${player.id} scored ${roundScore} (base=${vote.token}, doubleDown=${usedDoubleDown}, comeback=${hasComeback}, streak=${streakBonus}, speedDemon=${speedDemonBonus})`);
+    } else {
+      // Wrong answer
+      player.streak.current = 0; // Reset streak
+      
+      // Safety Net: return token to player
+      if (usedSafetyNet) {
+        // Token is returned, don't decrement
+        logger.info(`Player ${player.id} used Safety Net - token ${vote.token} returned`);
+      } else {
+        // Decrement token count (remove one from the stack)
+        if (player.tokenCounts[vote.token] > 0) {
+          player.tokenCounts[vote.token]--;
+        }
+      }
+      
+      // Handle Gambit failure
+      if (player.gambit && player.gambit.isActive && !player.gambit.completed) {
+        player.gambit.completed = true;
+        player.gambit.won = false;
+        // Penalty: lose points equal to stake value
+        player.score = Math.max(0, player.score - player.gambit.stakeTokenValue);
+        logger.info(`Player ${player.id} lost the Gambit! Penalty: -${player.gambit.stakeTokenValue}`);
+      }
+    }
+    
+    // Mark power-up as used
+    if (vote.powerUpUsed) {
+      const powerUp = player.powerUps.find(p => p.type === vote.powerUpUsed);
+      if (powerUp) {
+        powerUp.used = true;
+      }
     }
   });
 
@@ -551,6 +707,145 @@ function checkAnswer(question: Question, answer: number | boolean): boolean {
     default:
       return false;
   }
+}
+
+// ============================================
+// New Game Mechanics Functions
+// ============================================
+
+// Activate Endgame Gambit (The Trifecta)
+export function activateGambit(channelId: string, playerId: string): GameSession | null {
+  const session = gameSessions.get(channelId);
+  if (!session) return null;
+  
+  const player = session.players.find((p: Player) => p.id === playerId);
+  if (!player || player.isSpectator) return null;
+  
+  // Can only activate at 3rd-to-last round
+  if (session.currentRound !== session.totalRounds - 2) {
+    logger.warn(`Player ${playerId} tried to activate gambit at wrong round (${session.currentRound}/${session.totalRounds})`);
+    return null;
+  }
+  
+  // Can't activate if already have an active gambit
+  if (player.gambit && player.gambit.isActive) {
+    logger.warn(`Player ${playerId} already has an active gambit`);
+    return null;
+  }
+  
+  // Get highest available token as stake
+  const stakeTokenValue = getHighestAvailableToken(player.tokenCounts);
+  if (stakeTokenValue === 0) {
+    logger.warn(`Player ${playerId} has no tokens to stake for gambit`);
+    return null;
+  }
+  
+  player.gambit = {
+    isActive: true,
+    startedAtRound: session.currentRound,
+    stakeTokenValue,
+    consecutiveCorrect: 0,
+    completed: false,
+    won: false
+  };
+  
+  session.lastActivity = Date.now();
+  logger.info(`Player ${playerId} activated Gambit with stake token ${stakeTokenValue}`);
+  return session;
+}
+
+// Trade tokens: Combine (Fuse) - 2 of N for 1 of min(2N, 10)
+export function tradeTokensUp(channelId: string, playerId: string, sourceValue: number): GameSession | null {
+  const session = gameSessions.get(channelId);
+  if (!session) return null;
+  
+  // Can only trade in lobby or between rounds
+  if (session.currentPhase !== 'lobby' && session.currentPhase !== 'question') {
+    return null;
+  }
+  
+  const player = session.players.find((p: Player) => p.id === playerId);
+  if (!player || player.isSpectator) return null;
+  
+  // Need at least 2 tokens of source value
+  if (!player.tokenCounts[sourceValue] || player.tokenCounts[sourceValue] < 2) {
+    logger.warn(`Player ${playerId} doesn't have 2 tokens of value ${sourceValue} to combine`);
+    return null;
+  }
+  
+  // Target value is min(source * 2, 10)
+  const targetValue = Math.min(10, sourceValue * 2);
+  
+  // Perform trade
+  player.tokenCounts[sourceValue] -= 2;
+  player.tokenCounts[targetValue] = (player.tokenCounts[targetValue] || 0) + 1;
+  
+  session.lastActivity = Date.now();
+  logger.info(`Player ${playerId} combined 2x${sourceValue} for 1x${targetValue}`);
+  return session;
+}
+
+// Trade tokens: Split (Fission) - 1 of N for floor(N/2) and ceil(N/2)
+export function tradeTokensDown(channelId: string, playerId: string, sourceValue: number): GameSession | null {
+  const session = gameSessions.get(channelId);
+  if (!session) return null;
+  
+  // Can only trade in lobby or between rounds
+  if (session.currentPhase !== 'lobby' && session.currentPhase !== 'question') {
+    return null;
+  }
+  
+  const player = session.players.find((p: Player) => p.id === playerId);
+  if (!player || player.isSpectator) return null;
+  
+  // Need at least 1 token of source value
+  if (!player.tokenCounts[sourceValue] || player.tokenCounts[sourceValue] < 1) {
+    logger.warn(`Player ${playerId} doesn't have a token of value ${sourceValue} to split`);
+    return null;
+  }
+  
+  if (sourceValue < 2) {
+    logger.warn(`Cannot split value 1`);
+    return null;
+  }
+  
+  const val1 = Math.floor(sourceValue / 2);
+  const val2 = Math.ceil(sourceValue / 2);
+  
+  // Perform trade
+  player.tokenCounts[sourceValue] -= 1;
+  player.tokenCounts[val1] = (player.tokenCounts[val1] || 0) + 1;
+  player.tokenCounts[val2] = (player.tokenCounts[val2] || 0) + 1;
+  
+  session.lastActivity = Date.now();
+  logger.info(`Player ${playerId} split 1x${sourceValue} into ${val1} and ${val2}`);
+  return session;
+}
+
+// Get eliminated options for 50/50 power-up
+export function get5050Options(channelId: string, playerId: string): number[] | null {
+  const session = gameSessions.get(channelId);
+  if (!session || session.currentPhase !== 'voting') return null;
+  if (!session.currentQuestion || session.currentQuestion.type !== 'multiple-choice') return null;
+  
+  const player = session.players.find((p: Player) => p.id === playerId);
+  if (!player || player.isSpectator) return null;
+  
+  // Check if player has 50/50 power-up available
+  const powerUp = player.powerUps.find(p => p.type === '50-50' && !p.used);
+  if (!powerUp) return null;
+  
+  const question = session.currentQuestion;
+  const correctAnswer = question.correctAnswer;
+  
+  // Get 2 wrong options to eliminate
+  const wrongOptions = question.options
+    .map((_, index) => index)
+    .filter(index => index !== correctAnswer);
+  
+  // Randomly select 2 wrong options to eliminate
+  const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 2);
 }
 
 // Move to next round
@@ -598,9 +893,14 @@ export function resetGame(channelId: string, hostId: string): GameSession | null
   // Reset all players
   [...session.players, ...session.spectators].forEach((player: Player) => {
     player.score = 0;
-    player.availableTokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    player.tokenCounts = generateTokenCounts(session.settings.totalRounds);
     player.usedTokens = [];
     player.isSpectator = false;
+    // Reset new game mechanics
+    player.powerUps = getInitialPowerUps();
+    player.streak = { current: 0, best: 0 };
+    player.gambit = null;
+    player.lastAnswerTime = null;
   });
 
   // Move spectators back to players
@@ -639,9 +939,14 @@ export async function playAgain(channelId: string, hostId: string, broadcastFn?:
   // Reset all players
   [...session.players, ...session.spectators].forEach((player: Player) => {
     player.score = 0;
-    player.availableTokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    player.tokenCounts = generateTokenCounts(session.settings.totalRounds);
     player.usedTokens = [];
     player.isSpectator = false;
+    // Reset new game mechanics
+    player.powerUps = getInitialPowerUps();
+    player.streak = { current: 0, best: 0 };
+    player.gambit = null;
+    player.lastAnswerTime = null;
   });
 
   // Move spectators back to players

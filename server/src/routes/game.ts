@@ -13,9 +13,13 @@ import {
   resetGame,
   playAgain,
   exitGame,
-  cancelGeneration
+  cancelGeneration,
+  activateGambit,
+  tradeTokensUp,
+  tradeTokensDown,
+  get5050Options
 } from '../lib/game-manager.js';
-import type { DiscordUser, GameSettings, GamePhase } from '../types/game.js';
+import type { DiscordUser, GameSettings, GamePhase, PowerUpType } from '../types/game.js';
 import { logger } from '../lib/logger.js';
 
 const router = express.Router();
@@ -180,10 +184,12 @@ export function setupSocketIO(io: SocketIOServer) {
       playerId: string;
       answer: number | boolean;
       token: number;
+      powerUpUsed?: PowerUpType | null;
+      eliminatedOptions?: number[] | null;
     }, callback) => {
       try {
-        const { channelId, playerId, answer, token } = data;
-        const session = submitVote(channelId, playerId, answer, token);
+        const { channelId, playerId, answer, token, powerUpUsed, eliminatedOptions } = data;
+        const session = submitVote(channelId, playerId, answer, token, powerUpUsed || null, eliminatedOptions || null);
         
         if (!session) {
           callback({ error: 'Failed to submit vote' });
@@ -327,6 +333,85 @@ export function setupSocketIO(io: SocketIOServer) {
       } catch (error) /* istanbul ignore next */ {
         logger.error('Error in game:cancel_generation:', error);
         callback({ error: 'Failed to cancel generation' });
+      }
+    });
+
+    // Activate Endgame Gambit (The Trifecta)
+    socket.on('game:activate_gambit', (data: { channelId: string; playerId: string }, callback) => {
+      try {
+        const { channelId, playerId } = data;
+        const session = activateGambit(channelId, playerId);
+        
+        if (!session) {
+          callback({ error: 'Failed to activate gambit' });
+          return;
+        }
+
+        broadcastUpdate(io, channelId, 'gambit_activated', session);
+        callback({ success: true, session });
+        logger.info(`Gambit activated by player ${playerId} in channel ${channelId}`);
+      } catch (error) /* istanbul ignore next */ {
+        logger.error('Error in game:activate_gambit:', error);
+        callback({ error: 'Failed to activate gambit' });
+      }
+    });
+
+    // Trade tokens up (2 of N for 1 of N+1)
+    socket.on('game:trade_up', (data: { channelId: string; playerId: string; sourceValue: number }, callback) => {
+      try {
+        const { channelId, playerId, sourceValue } = data;
+        const session = tradeTokensUp(channelId, playerId, sourceValue);
+        
+        if (!session) {
+          callback({ error: 'Failed to trade tokens' });
+          return;
+        }
+
+        broadcastUpdate(io, channelId, 'tokens_traded', session);
+        callback({ success: true, session });
+        logger.info(`Player ${playerId} traded up tokens in channel ${channelId}`);
+      } catch (error) /* istanbul ignore next */ {
+        logger.error('Error in game:trade_up:', error);
+        callback({ error: 'Failed to trade tokens' });
+      }
+    });
+
+    // Trade tokens down (1 of N for 2 of floor(N/2))
+    socket.on('game:trade_down', (data: { channelId: string; playerId: string; sourceValue: number }, callback) => {
+      try {
+        const { channelId, playerId, sourceValue } = data;
+        const session = tradeTokensDown(channelId, playerId, sourceValue);
+        
+        if (!session) {
+          callback({ error: 'Failed to trade tokens' });
+          return;
+        }
+
+        broadcastUpdate(io, channelId, 'tokens_traded', session);
+        callback({ success: true, session });
+        logger.info(`Player ${playerId} traded down tokens in channel ${channelId}`);
+      } catch (error) /* istanbul ignore next */ {
+        logger.error('Error in game:trade_down:', error);
+        callback({ error: 'Failed to trade tokens' });
+      }
+    });
+
+    // Get 50/50 eliminated options
+    socket.on('game:get_5050', (data: { channelId: string; playerId: string }, callback) => {
+      try {
+        const { channelId, playerId } = data;
+        const eliminatedOptions = get5050Options(channelId, playerId);
+        
+        if (!eliminatedOptions) {
+          callback({ error: 'Failed to get 50/50 options' });
+          return;
+        }
+
+        callback({ success: true, eliminatedOptions });
+        logger.info(`50/50 options generated for player ${playerId} in channel ${channelId}`);
+      } catch (error) /* istanbul ignore next */ {
+        logger.error('Error in game:get_5050:', error);
+        callback({ error: 'Failed to get 50/50 options' });
       }
     });
 

@@ -33,32 +33,19 @@ describe('ThemeToggle', () => {
     expect(button).toBeInTheDocument();
   });
 
-  it('has fixed positioning classes', () => {
-    render(<ThemeToggle />);
-    
-    const button = screen.getByRole('button');
-    expect(button).toHaveClass('fixed');
-    expect(button).toHaveClass('top-4');
-    expect(button).toHaveClass('right-4');
-    expect(button).toHaveClass('z-50');
-  });
-
   it('has proper styling classes', () => {
     render(<ThemeToggle />);
     
     const button = screen.getByRole('button');
-    expect(button).toHaveClass('p-2');
-    expect(button).toHaveClass('rounded-full');
-    expect(button).toHaveClass('backdrop-blur-sm');
-    expect(button).toHaveClass('shadow-lg');
+    // Component now uses game-control-btn class and is positioned by parent
+    expect(button).toHaveClass('game-control-btn');
   });
 
-  it('renders SVG icon', () => {
-    const { container } = render(<ThemeToggle />);
+  it('renders sun/moon emoji', () => {
+    render(<ThemeToggle />);
     
-    const svg = container.querySelector('svg');
-    expect(svg).toBeInTheDocument();
-    expect(svg).toHaveClass('w-5');
-    expect(svg).toHaveClass('h-5');
+    const button = screen.getByRole('button');
+    // Check for sun or moon emoji
+    expect(button.textContent).toMatch(/☀️|🌙/);
   });
 });

@@ -151,7 +151,7 @@ router.post('/', async (req: Request, res: Response) => {
         return res.json({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: '**Qu-Zing! Help**\n\n🎮 **How to Play:**\n• Join a voice channel and start the activity\n• Answer trivia questions with confidence levels\n• Bet tokens based on how sure you are\n• The player with the most points wins!\n\n📊 **Commands:**\n• `/play` - Get instructions to start a game\n• `/help` - Show this help message\n• `/stats` - View your game statistics',
+            content: '**Qu-Zing! Help**\n\n🎮 **How to Play:**\n• Join a voice channel and start the activity\n• Answer trivia questions and bet tokens (1-10) based on confidence\n• Correct = keep points • Wrong = lose that token forever\n• The player with the most points wins!\n\n⚡ **Power-ups & Bonuses:**\n• **Double Down (x2)** / **Safety Net** / **50/50** — strategic abilities\n• **🔥 Streak Fire:** 2+ correct in a row = bonus points\n• **⚡ Speed Demon:** Answer in first 3s = +2 points\n• **🎰 Endgame Gambit:** Round 8+ — answer 3 in a row for 2x bonus!\n• **📈 Comeback Bonus:** Bottom 50% get 1.2x multiplier\n\n📊 **Commands:**\n• `/play` - Get instructions to start a game\n• `/help` - Show this help message\n• `/stats` - View your game statistics',
             flags: 64,
           },
         });

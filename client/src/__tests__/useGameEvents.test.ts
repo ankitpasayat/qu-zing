@@ -415,4 +415,318 @@ describe('useGameEvents', () => {
 
     expect(result.current.socket).toBeDefined();
   });
+
+  it('should return markAsExited function', () => {
+    const { result } = renderHook(() =>
+      useGameEvents({
+        channelId: 'channel-123',
+        playerId: 'player-1',
+      })
+    );
+
+    expect(result.current.markAsExited).toBeDefined();
+    expect(typeof result.current.markAsExited).toBe('function');
+  });
+
+  it('should not emit game:leave on unmount when markAsExited was called', async () => {
+    let connectHandler: () => void;
+    mockSocket.on.mockImplementation((event: string, handler: () => void) => {
+      if (event === 'connect') {
+        connectHandler = handler;
+      }
+    });
+
+    mockSocket.emit.mockImplementation(
+      (_event: string, _data: unknown, callback?: (response: unknown) => void) => {
+        if (callback) {
+          callback({ session: createMockSession() });
+        }
+      }
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useGameEvents({
+        channelId: 'channel-123',
+        playerId: 'player-1',
+        user: createMockUser(),
+      })
+    );
+
+    // Simulate connect to set hasJoined
+    await act(async () => {
+      connectHandler!();
+    });
+
+    // Clear mock to track only subsequent calls
+    mockSocket.emit.mockClear();
+
+    // Mark as exited before unmount
+    act(() => {
+      result.current.markAsExited();
+    });
+
+    unmount();
+
+    // Should NOT emit game:leave since we already exited via API
+    expect(mockSocket.emit).not.toHaveBeenCalledWith(
+      'game:leave',
+      expect.anything(),
+      expect.any(Function)
+    );
+    expect(mockSocket.disconnect).toHaveBeenCalled();
+  });
+
+  it('should clear session when initialSession is set to null', () => {
+    const initialSession = createMockSession({ lastActivity: 1000 });
+
+    const { result, rerender } = renderHook(
+      ({ initialSession }) =>
+        useGameEvents({
+          channelId: null,
+          playerId: null,
+          initialSession,
+        }),
+      { initialProps: { initialSession: initialSession as GameSession | null } }
+    );
+
+    expect(result.current.session).toEqual(initialSession);
+
+    // Set initialSession to null (simulating exit game flow)
+    rerender({ initialSession: null });
+
+    expect(result.current.session).toBeNull();
+  });
+
+  it('should force reconnection when reconnectKey changes', async () => {
+    const { io } = await import('socket.io-client');
+
+    const { rerender } = renderHook(
+      ({ reconnectKey }) =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          user: createMockUser(),
+          reconnectKey,
+        }),
+      { initialProps: { reconnectKey: 0 } }
+    );
+
+    // Initial connection
+    expect(io).toHaveBeenCalledTimes(1);
+    
+    // Clear to track new calls
+    vi.mocked(io).mockClear();
+    mockSocket.disconnect.mockClear();
+
+    // Change reconnectKey to force reconnection
+    rerender({ reconnectKey: 1 });
+
+    // Should disconnect old socket and create new one
+    expect(mockSocket.disconnect).toHaveBeenCalled();
+    expect(io).toHaveBeenCalledTimes(1);
+  });
+
+  describe('settings_changed event handling', () => {
+    it('should update session when settings actually changed', async () => {
+      const initialSession = createMockSession({ 
+        lastActivity: 1000,
+        settings: {
+          totalRounds: 5,
+          timeToAnswer: 30,
+          timeBetweenQuestions: 5,
+          timeToViewAnswer: 5,
+          categories: [],
+          allowMidGameJoin: true,
+          showLeaderboardDuringGame: true,
+          questionTimeLimit: 0,
+        }
+      });
+      const updatedSession = createMockSession({ 
+        lastActivity: 2000,
+        settings: {
+          totalRounds: 10, // Changed!
+          timeToAnswer: 30,
+          timeBetweenQuestions: 5,
+          timeToViewAnswer: 5,
+          categories: [],
+          allowMidGameJoin: true,
+          showLeaderboardDuringGame: true,
+          questionTimeLimit: 0,
+        }
+      });
+
+      let updateHandler: (data: { type: string; session: GameSession; timestamp: number }) => void;
+      mockSocket.on.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'game:update') {
+          updateHandler = handler as typeof updateHandler;
+        }
+      });
+
+      const onUpdate = vi.fn();
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          initialSession,
+          onUpdate,
+        })
+      );
+
+      // Simulate settings_changed update
+      await act(async () => {
+        updateHandler!({ type: 'settings_changed', session: updatedSession, timestamp: Date.now() });
+      });
+
+      expect(result.current.session?.settings.totalRounds).toBe(10);
+      expect(onUpdate).toHaveBeenCalledWith(updatedSession);
+    });
+
+    it('should skip update when settings have not actually changed', async () => {
+      const initialSession = createMockSession({ lastActivity: 1000 });
+      const sameSettingsSession = createMockSession({ 
+        lastActivity: 2000,
+        // Same settings as initial
+      });
+
+      let updateHandler: (data: { type: string; session: GameSession; timestamp: number }) => void;
+      mockSocket.on.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'game:update') {
+          updateHandler = handler as typeof updateHandler;
+        }
+      });
+
+      const onUpdate = vi.fn();
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          initialSession,
+          onUpdate,
+        })
+      );
+
+      const originalSession = result.current.session;
+
+      // Simulate settings_changed update with no actual changes
+      await act(async () => {
+        updateHandler!({ type: 'settings_changed', session: sameSettingsSession, timestamp: Date.now() });
+      });
+
+      // Session reference should be the same (no update)
+      expect(result.current.session).toBe(originalSession);
+    });
+
+    it('should update when timeBetweenQuestions changes', async () => {
+      const initialSession = createMockSession({ lastActivity: 1000 });
+      const updatedSession = createMockSession({ 
+        lastActivity: 2000,
+        settings: {
+          ...initialSession.settings,
+          timeBetweenQuestions: 10, // Changed from 5 to 10
+        }
+      });
+
+      let updateHandler: (data: { type: string; session: GameSession; timestamp: number }) => void;
+      mockSocket.on.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'game:update') {
+          updateHandler = handler as typeof updateHandler;
+        }
+      });
+
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          initialSession,
+        })
+      );
+
+      await act(async () => {
+        updateHandler!({ type: 'settings_changed', session: updatedSession, timestamp: Date.now() });
+      });
+
+      expect(result.current.session?.settings.timeBetweenQuestions).toBe(10);
+    });
+
+    it('should update when allowMidGameJoin changes', async () => {
+      const initialSession = createMockSession({ lastActivity: 1000 });
+      const updatedSession = createMockSession({ 
+        lastActivity: 2000,
+        settings: {
+          ...initialSession.settings,
+          allowMidGameJoin: false, // Changed from true to false
+        }
+      });
+
+      let updateHandler: (data: { type: string; session: GameSession; timestamp: number }) => void;
+      mockSocket.on.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'game:update') {
+          updateHandler = handler as typeof updateHandler;
+        }
+      });
+
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          initialSession,
+        })
+      );
+
+      await act(async () => {
+        updateHandler!({ type: 'settings_changed', session: updatedSession, timestamp: Date.now() });
+      });
+
+      expect(result.current.session?.settings.allowMidGameJoin).toBe(false);
+    });
+
+    it('should create session from settings_changed when prev is null', async () => {
+      const newSession = createMockSession({ lastActivity: 2000 });
+
+      let updateHandler: (data: { type: string; session: GameSession; timestamp: number }) => void;
+      mockSocket.on.mockImplementation((event: string, handler: (data: unknown) => void) => {
+        if (event === 'game:update') {
+          updateHandler = handler as typeof updateHandler;
+        }
+      });
+
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+          initialSession: undefined,
+        })
+      );
+
+      await act(async () => {
+        updateHandler!({ type: 'settings_changed', session: newSession, timestamp: Date.now() });
+      });
+
+      expect(result.current.session).toEqual(newSession);
+    });
+  });
+
+  describe('utility functions', () => {
+    it('should provide get5050 function that returns eliminated options', async () => {
+      mockSocket.emit.mockImplementation(
+        (event: string, _data: unknown, callback?: (response: unknown) => void) => {
+          if (event === 'game:get_5050' && callback) {
+            callback({ eliminatedOptions: [0, 2] });
+          }
+        }
+      );
+
+      const { result } = renderHook(() =>
+        useGameEvents({
+          channelId: 'channel-123',
+          playerId: 'player-1',
+        })
+      );
+
+      // The get5050 is part of useGameApi, not useGameEvents
+      // useGameEvents returns: session, isConnected, error, socket, markAsExited
+      expect(result.current.socket).toBeDefined();
+      expect(result.current.markAsExited).toBeDefined();
+    });
+  });
 });

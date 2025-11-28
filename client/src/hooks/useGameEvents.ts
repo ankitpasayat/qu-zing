@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { GameSession, DiscordUser } from '../types/game';
+import type { GameSession, DiscordUser, PowerUpType } from '../types/game';
 
 interface SocketResponse {
   error?: string;
@@ -20,6 +20,8 @@ interface UseGameEventsProps {
   instanceId?: string;
   user?: DiscordUser;
   platform?: 'discord' | 'browser';
+  // Increment this to force socket reconnection (e.g., after exit game)
+  reconnectKey?: number;
 }
 
 export function useGameEvents({ 
@@ -30,7 +32,8 @@ export function useGameEvents({
   guildId = '',
   instanceId = '',
   user,
-  platform = 'discord'
+  platform = 'discord',
+  reconnectKey = 0
 }: UseGameEventsProps) {
   // Initialize session from initialSession prop
   const [session, setSession] = useState<GameSession | null>(initialSession ?? null);
@@ -39,6 +42,8 @@ export function useGameEvents({
   const socketRef = useRef<Socket | null>(null);
   const lastUpdateTimeRef = useRef<number>(initialSession?.lastActivity || 0);
   const hasJoinedRef = useRef(false);
+  // Track if we've already exited to prevent double-leave in cleanup
+  const hasExitedRef = useRef(false);
 
   // Log when component initializes with a session
   useEffect(() => {
@@ -63,12 +68,22 @@ export function useGameEvents({
           current: lastUpdateTimeRef.current
         });
       }
+    } else if (initialSession === null) {
+      // Explicitly clear session and reset timestamp when initialSession is set to null
+      // This handles the "exit game" flow where we want to start fresh
+      console.log('🧹 Clearing session state (initialSession set to null)');
+      setSession(null);
+      lastUpdateTimeRef.current = 0;
     }
   }, [initialSession]);
 
   useEffect(() => {
     if (!channelId || !playerId) {
       console.log('⏸️ Socket not connecting: missing channelId or playerId', { channelId, playerId });
+      // Reset connection state but don't clear session - it may come from initialSession
+      setIsConnected(false);
+      // Reset hasJoinedRef so next connection can join fresh
+      hasJoinedRef.current = false;
       return;
     }
 
@@ -82,6 +97,7 @@ export function useGameEvents({
 
     socketRef.current = socket;
     hasJoinedRef.current = false;
+    hasExitedRef.current = false; // Reset exit flag for new connection
 
     socket.on('connect', () => {
       console.log('✅ Socket.IO connected:', socket.id);
@@ -179,8 +195,8 @@ export function useGameEvents({
     return () => {
       console.log('🔌 Closing Socket.IO connection');
       
-      // Leave the game before disconnecting
-      if (hasJoinedRef.current) {
+      // Leave the game before disconnecting (unless we already exited via API)
+      if (hasJoinedRef.current && !hasExitedRef.current) {
         socket.emit('game:leave', { channelId, playerId }, () => {
           console.log('👋 Left game session');
         });
@@ -189,9 +205,14 @@ export function useGameEvents({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [channelId, playerId, user, guildId, instanceId, platform, onUpdate]);
+  }, [channelId, playerId, user, guildId, instanceId, platform, onUpdate, reconnectKey]);
 
-  return { session, isConnected, error, socket: socketRef.current };
+  // Mark as exited when the exitGame API is used (called by useGameApi)
+  const markAsExited = () => {
+    hasExitedRef.current = true;
+  };
+
+  return { session, isConnected, error, socket: socketRef.current, markAsExited };
 }
 
 // API helper functions using Socket.IO
@@ -224,8 +245,8 @@ export function useGameApi(channelId: string | null, socket: Socket | null) {
   return {
     isLoading,
     startGame: (hostId: string) => socketEmit('game:start', { hostId }),
-    submitVote: (playerId: string, answer: number | boolean, token: number) => 
-      socketEmit('game:vote', { playerId, answer, token }),
+    submitVote: (playerId: string, answer: number | boolean, token: number, powerUpUsed?: PowerUpType | null, eliminatedOptions?: number[] | null) => 
+      socketEmit('game:vote', { playerId, answer, token, powerUpUsed: powerUpUsed || null, eliminatedOptions: eliminatedOptions || null }),
     autoVote: (playerId: string) => socketEmit('game:auto_vote', { playerId }),
     changePhase: (hostId: string, phase: string) => 
       socketEmit('game:change_phase', { hostId, phase }),
@@ -237,5 +258,18 @@ export function useGameApi(channelId: string | null, socket: Socket | null) {
       socketEmit('game:transfer_host', { currentHostId, newHostId }),
     exitGame: (playerId: string) => socketEmit('game:exit', { playerId }),
     cancelGeneration: (hostId: string) => socketEmit('game:cancel_generation', { hostId }),
+    get5050: async (playerId: string): Promise<number[] | null> => {
+      try {
+        const response = await socketEmit('game:get_5050', { playerId });
+        return (response.eliminatedOptions as number[]) || null;
+      } catch {
+        return null;
+      }
+    },
+    activateGambit: (playerId: string) => socketEmit('game:activate_gambit', { playerId }),
+    tradeUp: (playerId: string, sourceValue: number) => 
+      socketEmit('game:trade_up', { playerId, sourceValue }),
+    tradeDown: (playerId: string, sourceValue: number) => 
+      socketEmit('game:trade_down', { playerId, sourceValue }),
   };
 }

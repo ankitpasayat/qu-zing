@@ -155,5 +155,83 @@ describe('Platform Utilities', () => {
       
       expect(result).toBe(false);
     });
+
+    it('should use fallback when clipboard API is not available', async () => {
+      // Save original
+      const originalClipboard = navigator.clipboard;
+      const originalExecCommand = document.execCommand;
+      
+      // Mock clipboard as unavailable
+      Object.defineProperty(navigator, 'clipboard', {
+        value: undefined,
+        configurable: true,
+      });
+      
+      // Define execCommand since it may not exist in jsdom
+      document.execCommand = vi.fn().mockReturnValue(true);
+      
+      // Mock document methods for fallback
+      const mockTextarea = {
+        value: '',
+        style: { position: '', opacity: '' },
+        select: vi.fn(),
+      };
+      const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(mockTextarea as unknown as HTMLTextAreaElement);
+      const appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockTextarea as unknown as HTMLElement);
+      const removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockTextarea as unknown as HTMLElement);
+      
+      const result = await copyToClipboard('fallback test');
+      
+      expect(createElementSpy).toHaveBeenCalledWith('textarea');
+      expect(document.execCommand).toHaveBeenCalledWith('copy');
+      expect(result).toBe(true);
+      
+      // Restore
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true,
+      });
+      document.execCommand = originalExecCommand;
+      createElementSpy.mockRestore();
+      appendChildSpy.mockRestore();
+      removeChildSpy.mockRestore();
+    });
+
+    it('should return false when fallback fails', async () => {
+      // Save original
+      const originalClipboard = navigator.clipboard;
+      const originalExecCommand = document.execCommand;
+      
+      // Mock clipboard as unavailable
+      Object.defineProperty(navigator, 'clipboard', {
+        value: undefined,
+        configurable: true,
+      });
+      
+      // Define execCommand to return false (failure)
+      document.execCommand = vi.fn().mockReturnValue(false);
+      
+      // Mock document methods
+      const mockTextarea = {
+        value: '',
+        style: { position: '', opacity: '' },
+        select: vi.fn(),
+      };
+      vi.spyOn(document, 'createElement').mockReturnValue(mockTextarea as unknown as HTMLTextAreaElement);
+      vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockTextarea as unknown as HTMLElement);
+      vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockTextarea as unknown as HTMLElement);
+      
+      const result = await copyToClipboard('will fail');
+      
+      expect(result).toBe(false);
+      
+      // Restore
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true,
+      });
+      document.execCommand = originalExecCommand;
+      vi.restoreAllMocks();
+    });
   });
 });

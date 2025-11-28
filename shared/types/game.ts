@@ -4,6 +4,39 @@ export type GamePhase = 'waiting' | 'lobby' | 'question' | 'voting' | 'reveal' |
 
 export type Platform = 'discord' | 'browser';
 
+// Power-up types from GAME_MECHANICS.md
+export type PowerUpType = 'double-down' | 'safety-net' | '50-50';
+
+export interface PowerUp {
+  type: PowerUpType;
+  used: boolean;
+}
+
+// Initial power-ups given to each player
+export function getInitialPowerUps(): PowerUp[] {
+  return [
+    { type: 'double-down', used: false },
+    { type: 'safety-net', used: false },
+    { type: '50-50', used: false },
+  ];
+}
+
+// Endgame Gambit state
+export interface GambitState {
+  isActive: boolean;
+  startedAtRound: number; // Round when gambit was activated
+  stakeTokenValue: number; // Highest token value when activated
+  consecutiveCorrect: number; // 0, 1, 2, or 3 (wins at 3)
+  completed: boolean; // Whether gambit has ended (success or failure)
+  won: boolean; // Whether player won the gambit
+}
+
+// Streak state for Streak Fire mechanic
+export interface StreakState {
+  current: number; // Current streak count
+  best: number; // Best streak this game
+}
+
 // User info - supports both Discord and browser users
 export interface DiscordUser {
   id: string;
@@ -24,6 +57,12 @@ export interface Player {
   isConnected: boolean;
   isSpectator: boolean; // true if joined mid-game
   joinedAt: number;
+  
+  // New game mechanics
+  powerUps: PowerUp[]; // Available power-ups
+  streak: StreakState; // Current streak info
+  gambit: GambitState | null; // Active gambit state (null if not activated)
+  lastAnswerTime: number | null; // Timestamp of last answer submission (for Speed Demon)
 }
 
 // Helper to generate initial token counts based on total rounds
@@ -103,6 +142,8 @@ export interface PlayerVote {
   answer: number | boolean;
   token: number;
   submittedAt: number;
+  powerUpUsed: PowerUpType | null; // Power-up used for this vote
+  eliminatedOptions: number[] | null; // For 50/50, which options were eliminated
 }
 
 export interface GameSession {
@@ -214,4 +255,113 @@ export function getAvatarUrl(user: DiscordUser, size = 64): string {
 // Helper to get display name
 export function getDisplayName(user: DiscordUser): string {
   return user.globalName || user.username;
+}
+
+// ============================================
+// Game Mechanics Helpers (from GAME_MECHANICS.md)
+// ============================================
+
+// Speed Demon: Check if answer was submitted within 3 seconds
+export const SPEED_DEMON_THRESHOLD_MS = 3000;
+export const SPEED_DEMON_BONUS = 2;
+
+export function isSpeedDemon(votingPhaseStartedAt: number | null, submittedAt: number): boolean {
+  if (!votingPhaseStartedAt) return false;
+  return submittedAt - votingPhaseStartedAt <= SPEED_DEMON_THRESHOLD_MS;
+}
+
+// Streak Fire: Calculate streak bonus
+export function getStreakBonus(streakCount: number): number {
+  if (streakCount < 2) return 0;
+  if (streakCount === 2) return 1;
+  if (streakCount === 3) return 2;
+  return 3; // 4+ streak
+}
+
+// Comeback Bonus: Check if player qualifies (bottom 50%)
+export const COMEBACK_MULTIPLIER = 1.2;
+
+export function qualifiesForComebackBonus(playerScore: number, allScores: number[]): boolean {
+  if (allScores.length <= 1) return false;
+  const sortedScores = [...allScores].sort((a, b) => b - a);
+  const playerRank = sortedScores.indexOf(playerScore);
+  const bottomHalfThreshold = Math.ceil(sortedScores.length / 2);
+  return playerRank >= bottomHalfThreshold;
+}
+
+// Gambit: Check if gambit can be activated (3rd-to-last round)
+export function canActivateGambit(currentRound: number, totalRounds: number): boolean {
+  return currentRound === totalRounds - 2; // 3rd-to-last round
+}
+
+// Gambit: Calculate gambit reward
+export function getGambitReward(stakeTokenValue: number): number {
+  return stakeTokenValue * 2; // 2x stake value
+}
+
+// Token Trading: Calculate trade values
+export function getTradeUpCost(targetValue: number): { required: number; value: number } {
+  // Trade 2 tokens of value N for 1 token of value N+1
+  return { required: 2, value: targetValue - 1 };
+}
+
+export function getTradeDownResult(sourceValue: number): { count: number; value: number } {
+  // Trade 1 token of value N for 2 tokens of value floor(N/2)
+  return { count: 2, value: Math.floor(sourceValue / 2) };
+}
+
+// Get highest value token available
+export function getHighestAvailableToken(tokenCounts: Record<number, number>): number {
+  const available = getAvailableTokens(tokenCounts);
+  return available.length > 0 ? Math.max(...available) : 0;
+}
+
+// Calculate total score with all multipliers and bonuses
+export interface ScoreCalculation {
+  baseScore: number; // Token value
+  doubleDown: boolean; // 2x multiplier
+  comebackBonus: boolean; // 1.2x multiplier
+  streakBonus: number; // +1/2/3 points
+  speedDemonBonus: number; // +2 points
+  finalScore: number;
+}
+
+export function calculateScore(
+  tokenValue: number,
+  options: {
+    doubleDown?: boolean;
+    qualifiesForComeback?: boolean;
+    streakCount?: number;
+    isSpeedDemon?: boolean;
+  }
+): ScoreCalculation {
+  let baseScore = tokenValue;
+  
+  // Apply multipliers first
+  let multipliedScore = baseScore;
+  
+  // Double Down (x2)
+  if (options.doubleDown) {
+    multipliedScore *= 2;
+  }
+  
+  // Comeback Bonus (x1.2) - applied before bonuses
+  if (options.qualifiesForComeback) {
+    multipliedScore = Math.floor(multipliedScore * COMEBACK_MULTIPLIER);
+  }
+  
+  // Add bonuses
+  const streakBonus = getStreakBonus(options.streakCount || 0);
+  const speedDemonBonus = options.isSpeedDemon ? SPEED_DEMON_BONUS : 0;
+  
+  const finalScore = multipliedScore + streakBonus + speedDemonBonus;
+  
+  return {
+    baseScore,
+    doubleDown: options.doubleDown || false,
+    comebackBonus: options.qualifiesForComeback || false,
+    streakBonus,
+    speedDemonBonus,
+    finalScore,
+  };
 }

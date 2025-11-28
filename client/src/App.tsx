@@ -12,7 +12,7 @@ import { detectPlatform, generateLobbyCode, getBrowserUserData, updateBrowserUse
 import Analytics from './pages/Analytics';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
-import type { DiscordUser, Player, GameSettings, GameSession, Platform } from './types/game';
+import type { DiscordUser, Player, GameSettings, GameSession, Platform, PowerUpType } from './types/game';
 
 // Initialize debug logger
 initDebugLogger();
@@ -464,6 +464,28 @@ function App() {
               console.error('Failed to cancel generation:', err);
             }
           }}
+          onTradeUp={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeUp(playerId!, sourceValue);
+              console.log('🔄 Trade up result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade up:', err);
+            }
+          }}
+          onTradeDown={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeDown(playerId!, sourceValue);
+              console.log('🔄 Trade down result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade down:', err);
+            }
+          }}
         />
       )}
 
@@ -484,9 +506,9 @@ function App() {
               console.error('Failed to change phase:', err);
             }
           }}
-          onSubmitVote={async (answer: number | boolean, token: number) => {
+          onSubmitVote={async (answer: number | boolean, token: number, powerUpUsed?: PowerUpType | null, eliminatedOptions?: number[] | null) => {
             try {
-              const result = await api.submitVote(playerId!, answer, token);
+              const result = await api.submitVote(playerId!, answer, token, powerUpUsed, eliminatedOptions);
               // Update session immediately from API response
               if (result.success && result.session) {
                 setInitialSession(result.session);
@@ -507,6 +529,47 @@ function App() {
             }
           }}
           onExitGame={handleExitGame}
+          onRequest5050={async () => {
+            try {
+              return await api.get5050(playerId!);
+            } catch (err) {
+              console.error('Failed to get 50/50 options:', err);
+              return null;
+            }
+          }}
+          onActivateGambit={async () => {
+            try {
+              const result = await api.activateGambit(playerId!);
+              console.log('🎲 Gambit activated:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to activate gambit:', err);
+            }
+          }}
+          onTradeUp={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeUp(playerId!, sourceValue);
+              console.log('🔄 Trade up result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade up:', err);
+            }
+          }}
+          onTradeDown={async (sourceValue: number) => {
+            try {
+              const result = await api.tradeDown(playerId!, sourceValue);
+              console.log('🔄 Trade down result:', result);
+              if (result.session) {
+                setInitialSession(result.session);
+              }
+            } catch (err) {
+              console.error('Failed to trade down:', err);
+            }
+          }}
         />
       )}
 

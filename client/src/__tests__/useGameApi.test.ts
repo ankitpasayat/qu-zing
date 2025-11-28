@@ -100,7 +100,7 @@ describe('useGameApi', () => {
     
     expect(mockSocket.emit).toHaveBeenCalledWith(
       'game:vote',
-      { channelId: 'channel-123', playerId: 'player-1', answer: 2, token: 5 },
+      { channelId: 'channel-123', playerId: 'player-1', answer: 2, token: 5, powerUpUsed: null, eliminatedOptions: null },
       expect.any(Function)
     );
   });
@@ -325,8 +325,142 @@ describe('useGameApi', () => {
     
     expect(mockSocket.emit).toHaveBeenCalledWith(
       'game:vote',
-      { channelId: 'channel-123', playerId: 'player-1', answer: true, token: 5 },
+      { channelId: 'channel-123', playerId: 'player-1', answer: true, token: 5, powerUpUsed: null, eliminatedOptions: null },
       expect.any(Function)
     );
+  });
+
+  describe('get5050', () => {
+    it('should return eliminated options on success', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({ eliminatedOptions: [0, 2] });
+        }
+      );
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      const eliminated = await result.current.get5050('player-1');
+      expect(eliminated).toEqual([0, 2]);
+    });
+
+    it('should return null when eliminatedOptions is missing', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({});
+        }
+      );
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      const eliminated = await result.current.get5050('player-1');
+      expect(eliminated).toBeNull();
+    });
+
+    it('should return null on error', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('Network error');
+      });
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      const eliminated = await result.current.get5050('player-1');
+      expect(eliminated).toBeNull();
+    });
+  });
+
+  describe('activateGambit', () => {
+    it('should emit game:activate_gambit event', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({ success: true });
+        }
+      );
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      await act(async () => {
+        await result.current.activateGambit('player-1');
+      });
+
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'game:activate_gambit',
+        { channelId: 'channel-123', playerId: 'player-1' },
+        expect.any(Function)
+      );
+    });
+  });
+
+  describe('tradeUp', () => {
+    it('should emit game:trade_up event with sourceValue', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({ success: true });
+        }
+      );
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      await act(async () => {
+        await result.current.tradeUp('player-1', 2);
+      });
+
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'game:trade_up',
+        { channelId: 'channel-123', playerId: 'player-1', sourceValue: 2 },
+        expect.any(Function)
+      );
+    });
+  });
+
+  describe('tradeDown', () => {
+    it('should emit game:trade_down event with sourceValue', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({ success: true });
+        }
+      );
+
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+
+      await act(async () => {
+        await result.current.tradeDown('player-1', 4);
+      });
+
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'game:trade_down',
+        { channelId: 'channel-123', playerId: 'player-1', sourceValue: 4 },
+        expect.any(Function)
+      );
+    });
+  });
+
+  describe('submitVote with power-ups', () => {
+    it('should pass power-up and eliminated options', async () => {
+      const mockSocket = createMockSocket();
+      (mockSocket.emit as ReturnType<typeof vi.fn>).mockImplementation(
+        (_event, _data, callback) => {
+          callback({ session: createMockSession() });
+        }
+      );
+      
+      const { result } = renderHook(() => useGameApi('channel-123', mockSocket));
+      
+      await act(async () => {
+        await result.current.submitVote('player-1', 2, 5, 'double-down', [0, 1]);
+      });
+      
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'game:vote',
+        { channelId: 'channel-123', playerId: 'player-1', answer: 2, token: 5, powerUpUsed: 'double-down', eliminatedOptions: [0, 1] },
+        expect.any(Function)
+      );
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { GameSession, DiscordUser } from '../types/game';
+import type { GameSession, DiscordUser, PowerUpType } from '../types/game';
 
 interface SocketResponse {
   error?: string;
@@ -245,8 +245,8 @@ export function useGameApi(channelId: string | null, socket: Socket | null) {
   return {
     isLoading,
     startGame: (hostId: string) => socketEmit('game:start', { hostId }),
-    submitVote: (playerId: string, answer: number | boolean, token: number) => 
-      socketEmit('game:vote', { playerId, answer, token }),
+    submitVote: (playerId: string, answer: number | boolean, token: number, powerUpUsed?: PowerUpType | null, eliminatedOptions?: number[] | null) => 
+      socketEmit('game:vote', { playerId, answer, token, powerUpUsed: powerUpUsed || null, eliminatedOptions: eliminatedOptions || null }),
     autoVote: (playerId: string) => socketEmit('game:auto_vote', { playerId }),
     changePhase: (hostId: string, phase: string) => 
       socketEmit('game:change_phase', { hostId, phase }),
@@ -258,5 +258,18 @@ export function useGameApi(channelId: string | null, socket: Socket | null) {
       socketEmit('game:transfer_host', { currentHostId, newHostId }),
     exitGame: (playerId: string) => socketEmit('game:exit', { playerId }),
     cancelGeneration: (hostId: string) => socketEmit('game:cancel_generation', { hostId }),
+    get5050: async (playerId: string): Promise<number[] | null> => {
+      try {
+        const response = await socketEmit('game:get_5050', { playerId });
+        return (response.eliminatedOptions as number[]) || null;
+      } catch {
+        return null;
+      }
+    },
+    activateGambit: (playerId: string) => socketEmit('game:activate_gambit', { playerId }),
+    tradeUp: (playerId: string, sourceValue: number) => 
+      socketEmit('game:trade_up', { playerId, sourceValue }),
+    tradeDown: (playerId: string, sourceValue: number) => 
+      socketEmit('game:trade_down', { playerId, sourceValue }),
   };
 }

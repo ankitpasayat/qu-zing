@@ -14,9 +14,10 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
 
   if (availableTokens.length === 0) {
     return (
-      <div className="mt-6 p-4 bg-amber-100 dark:bg-amber-500/20 border border-amber-400 dark:border-amber-500/50 rounded-xl text-center">
-        <p className="text-amber-700 dark:text-amber-300">No tokens remaining!</p>
-        <p className="text-sm text-amber-600 dark:text-amber-400/70 mt-1">You'll still earn points, just at 1x</p>
+      <div className="mt-6 p-5 game-card border-4 border-amber-400 dark:border-amber-500/60 bg-amber-50/90 dark:bg-amber-500/20 text-center relative animate-pop-in">
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl animate-wiggle">😅</div>
+        <p className="text-amber-700 dark:text-amber-300 font-black text-lg mt-2">No tokens remaining!</p>
+        <p className="text-sm text-amber-600 dark:text-amber-400/70 mt-2 font-medium">You'll still earn points, just at 1x 💪</p>
       </div>
     );
   }
@@ -119,10 +120,13 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
   };
 
   return (
-    <div className="mt-6">
-      <p className={`text-sm mb-3 transition-colors ${disabled ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-400'}`}>
-        {disabled ? 'Select an answer first to bet a token' : 'How confident are you? Bet a token:'}
-      </p>
+    <div className="mt-6 animate-slide-in-up">
+      <div className="flex items-center justify-center gap-2 mb-4">
+        <span className="text-xl">🎰</span>
+        <p className={`text-base font-bold transition-colors ${disabled ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}>
+          {disabled ? 'Select an answer first!' : 'How confident are you? Bet a token:'}
+        </p>
+      </div>
       <div className="grid grid-cols-5 gap-3 md:gap-5 max-w-md md:max-w-2xl mx-auto transition-all duration-300">
         {availableTokens.map((token) => {
           const count = tokenCounts[token] || 0;
@@ -141,8 +145,8 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
                 ${disabled 
                   ? 'cursor-not-allowed scale-95' 
                   : isSelected 
-                    ? 'scale-110 z-10' 
-                    : 'hover:scale-105 hover:z-10'
+                    ? 'scale-110 z-10 animate-jelly' 
+                    : 'hover:scale-105 hover:z-10 hover:rotate-3 active:scale-95'
                 }`}
               style={{
                 // Add padding at top for stacked chips that extend upward
@@ -156,7 +160,7 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
               {/* Stack count badge for multiple tokens */}
               {count > 1 && (
                 <div 
-                  className="absolute -top-2 -right-1 w-5 h-5 md:w-6 md:h-6 bg-gradient-to-br from-yellow-300 to-yellow-500 dark:from-yellow-400 dark:to-yellow-600 rounded-full flex items-center justify-center text-xs font-bold text-yellow-900 border-2 border-white shadow-lg"
+                  className="absolute -top-2 -right-1 w-6 h-6 md:w-7 md:h-7 bg-gradient-to-br from-yellow-300 to-yellow-500 dark:from-yellow-400 dark:to-yellow-600 rounded-full flex items-center justify-center text-xs md:text-sm font-black text-yellow-900 border-3 border-white shadow-lg animate-pop-in"
                   style={{ zIndex: count + 1, transform: `translateY(${-stackHeight}px)` }}
                 >
                   {count}
@@ -167,9 +171,13 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
         })}
       </div>
       {selectedToken && (
-        <p className="text-center mt-4 text-sm text-yellow-600 dark:text-yellow-300 font-medium">
-          Correct = +{selectedToken} points • Wrong = lose token
-        </p>
+        <div className="text-center mt-5 animate-pop-in">
+          <p className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-500/20 border-2 border-yellow-300 dark:border-yellow-500/50 rounded-xl text-sm font-bold text-yellow-700 dark:text-yellow-300">
+            <span className="text-lg">💰</span>
+            Correct = +{selectedToken} points • Wrong = lose token
+            <span className="text-lg">🎲</span>
+          </p>
+        </div>
       )}
     </div>
   );

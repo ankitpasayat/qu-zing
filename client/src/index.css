@@ -5,57 +5,68 @@
 
 /* ========================================
    Qu-Zing! Theme System
-   Refined comic-style colors with better contrast
+   Gartic.io-inspired playful, goofy game UI
    ======================================== */
 
 :root {
-  /* Light theme - clean, warm, and inviting */
-  --bg-primary: #fafbff;
-  --bg-secondary: #f1f4fb;
+  /* Light theme - vibrant, playful colors */
+  --bg-primary: #fff5f0;
+  --bg-secondary: #ffe8df;
   --bg-card: #ffffff;
-  --bg-accent: #fff7ed;
-  --bg-hover: #eef2ff;
+  --bg-accent: #fff0e6;
+  --bg-hover: #ffe0d0;
   
-  --text-primary: #1a1a2e;
-  --text-secondary: #4c1d95;
-  --text-muted: #64748b;
-  --text-accent: #7c3aed;
+  --text-primary: #2d1b4e;
+  --text-secondary: #6b3fa0;
+  --text-muted: #7a6b8a;
+  --text-accent: #9c4dcc;
   
-  --accent-red: #dc2626;
-  --accent-yellow: #eab308;
-  --accent-gold: #d97706;
-  --accent-green: #16a34a;
-  --accent-purple: #7c3aed;
+  --accent-red: #ff4757;
+  --accent-yellow: #ffc312;
+  --accent-gold: #f79f1f;
+  --accent-green: #2ed573;
+  --accent-purple: #9c4dcc;
+  --accent-blue: #3742fa;
+  --accent-pink: #ff6b9d;
+  --accent-orange: #ff9f43;
   
-  --border-color: #e2e8f0;
-  --border-hover: #cbd5e1;
-  --shadow-color: rgba(100, 116, 139, 0.12);
-  --shadow-hover: rgba(100, 116, 139, 0.2);
+  --border-color: #e0d6eb;
+  --border-hover: #c8b8db;
+  --shadow-color: rgba(100, 80, 139, 0.15);
+  --shadow-hover: rgba(100, 80, 139, 0.25);
+  
+  /* Goofy border style */
+  --squiggly-border: 3px solid #2d1b4e;
 }
 
 .dark {
   /* Dark theme - rich, vibrant, immersive */
-  --bg-primary: #0f0a1e;
-  --bg-secondary: #1a1033;
-  --bg-card: #231942;
-  --bg-accent: #2d1f4e;
-  --bg-hover: #252340;
+  --bg-primary: #0c0618;
+  --bg-secondary: #150d28;
+  --bg-card: #1e1038;
+  --bg-accent: #281848;
+  --bg-hover: #2a1a50;
   
-  --text-primary: #f1f5f9;
-  --text-secondary: #e0e7ff;
-  --text-muted: #94a3b8;
-  --text-accent: #a78bfa;
+  --text-primary: #f8f5ff;
+  --text-secondary: #dcd0f0;
+  --text-muted: #a090c0;
+  --text-accent: #c490ff;
   
-  --accent-red: #fb7185;
-  --accent-yellow: #facc15;
-  --accent-gold: #fbbf24;
-  --accent-green: #4ade80;
-  --accent-purple: #a78bfa;
+  --accent-red: #ff6b7a;
+  --accent-yellow: #ffd93d;
+  --accent-gold: #ffbe45;
+  --accent-green: #5eff9d;
+  --accent-purple: #c490ff;
+  --accent-blue: #5c7cff;
+  --accent-pink: #ff8cc4;
+  --accent-orange: #ffb86c;
   
-  --border-color: #2e2b42;
-  --border-hover: #433f5c;
+  --border-color: #3d2a60;
+  --border-hover: #5a3f8a;
   --shadow-color: rgba(0, 0, 0, 0.5);
   --shadow-hover: rgba(0, 0, 0, 0.7);
+  
+  --squiggly-border: 3px solid #f8f5ff;
 }
 
 /* Base html/body styles - ensure no white flash */
@@ -71,126 +82,310 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  /* Fun, rounded font for game feel */
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 
 /* Fallback for when CSS variables haven't loaded yet */
 html:not(.dark):not(.light) {
-  background-color: #0f0a1e;
+  background-color: #0c0618;
 }
 
 html:not(.dark):not(.light) body {
-  background-color: #0f0a1e;
+  background-color: #0c0618;
 }
+
+/* ========================================
+   Gartic.io-Inspired Game Controls
+   Playful, hand-drawn style buttons
+   ======================================== */
+
+/* Game control button - wobbly, fun style */
+.game-control-btn {
+  @apply p-2 rounded-xl transition-all duration-200;
+  background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary));
+  border: 3px solid var(--text-primary);
+  box-shadow: 3px 3px 0 var(--text-primary);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-control-btn:hover {
+  transform: translate(-1px, -1px) rotate(0deg) !important;
+  box-shadow: 4px 4px 0 var(--text-primary);
+}
+
+.game-control-btn:active {
+  transform: translate(2px, 2px) rotate(0deg) !important;
+  box-shadow: 1px 1px 0 var(--text-primary);
+}
+
+/* Lobby code badge - fun ticket style */
+.game-code-badge {
+  @apply flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all;
+  background: linear-gradient(145deg, #ffd93d, #f79f1f);
+  border: 3px solid var(--text-primary);
+  box-shadow: 3px 3px 0 var(--text-primary);
+  color: #2d1b4e;
+}
+
+.dark .game-code-badge {
+  background: linear-gradient(145deg, #ffd93d, #f79f1f);
+  color: #2d1b4e;
+}
+
+.game-code-badge:hover {
+  transform: translate(-1px, -1px) !important;
+  box-shadow: 4px 4px 0 var(--text-primary);
+}
+
+/* ========================================
+   Goofy Card & Container Styles
+   ======================================== */
 
 /* Gradient backgrounds matching theme */
 .theme-bg-gradient {
-  background: linear-gradient(145deg, var(--bg-primary) 0%, var(--bg-secondary) 60%, var(--bg-hover) 100%);
+  background: linear-gradient(155deg, var(--bg-primary) 0%, var(--bg-secondary) 50%, var(--bg-accent) 100%);
 }
 
 .dark .theme-bg-gradient {
-  background: linear-gradient(145deg, #0f0a1e 0%, #1a1033 40%, #231942 100%);
+  background: linear-gradient(155deg, #0c0618 0%, #150d28 40%, #1e1038 100%);
 }
 
 .light .theme-bg-gradient {
-  background: linear-gradient(145deg, #fafbff 0%, #f1f4fb 40%, #e8ecf7 100%);
+  background: linear-gradient(155deg, #fff5f0 0%, #ffe8df 40%, #ffd6c8 100%);
 }
 
-/* Card styles */
+/* Card styles - goofy hand-drawn feel */
 .theme-card {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  box-shadow: 0 4px 24px var(--shadow-color), 0 1px 3px rgba(0, 0, 0, 0.05);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  border: 3px solid var(--text-primary);
+  box-shadow: 5px 5px 0 var(--text-primary);
+  border-radius: 16px;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .theme-card:hover {
-  border-color: var(--border-hover);
-  box-shadow: 0 8px 32px var(--shadow-hover), 0 2px 6px rgba(0, 0, 0, 0.08);
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 var(--text-primary);
 }
 
-/* Comic-style button */
+/* Goofy panel - slightly rotated, fun feel */
+.goofy-panel {
+  @apply rounded-2xl p-4;
+  background: var(--bg-card);
+  border: 3px solid var(--text-primary);
+  box-shadow: 4px 4px 0 var(--text-primary);
+}
+
+/* Comic-style button - Gartic.io inspired */
 .comic-button {
-  background: linear-gradient(180deg, #facc15 0%, #eab308 100%);
-  color: #1a1a2e;
-  font-weight: 800;
-  border: 3px solid #1a1a2e;
-  box-shadow: 4px 4px 0 #1a1a2e;
+  background: linear-gradient(180deg, #ffd93d 0%, #f79f1f 100%);
+  color: #2d1b4e;
+  font-weight: 900;
+  border: 4px solid #2d1b4e;
+  box-shadow: 5px 5px 0 #2d1b4e;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   text-shadow: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .comic-button:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 #1a1a2e;
-  background: linear-gradient(180deg, #fde047 0%, #facc15 100%);
+  box-shadow: 7px 7px 0 #2d1b4e;
+  background: linear-gradient(180deg, #ffe066 0%, #ffc312 100%);
 }
 
 .comic-button:active {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 #1a1a2e;
+  transform: translate(3px, 3px);
+  box-shadow: 2px 2px 0 #2d1b4e;
 }
 
 .dark .comic-button {
-  background: linear-gradient(180deg, #facc15 0%, #f59e0b 100%);
-  border-color: #0f0a1e;
-  box-shadow: 4px 4px 0 #0f0a1e;
+  background: linear-gradient(180deg, #ffd93d 0%, #f79f1f 100%);
+  border-color: #0c0618;
+  box-shadow: 5px 5px 0 #0c0618;
+  color: #0c0618;
 }
 
 .dark .comic-button:hover {
-  box-shadow: 6px 6px 0 #0f0a1e;
-  background: linear-gradient(180deg, #fde047 0%, #facc15 100%);
+  box-shadow: 7px 7px 0 #0c0618;
+  background: linear-gradient(180deg, #ffe066 0%, #ffc312 100%);
 }
 
 .dark .comic-button:active {
-  box-shadow: 2px 2px 0 #0f0a1e;
+  box-shadow: 2px 2px 0 #0c0618;
+}
+
+/* Secondary button - for less emphasis */
+.comic-button-secondary {
+  background: linear-gradient(180deg, #f8f5ff 0%, #e8e0f0 100%);
+  color: #2d1b4e;
+  font-weight: 800;
+  border: 3px solid #2d1b4e;
+  box-shadow: 4px 4px 0 #2d1b4e;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark .comic-button-secondary {
+  background: linear-gradient(180deg, #281848 0%, #1e1038 100%);
+  color: #f8f5ff;
+  border-color: #f8f5ff;
+  box-shadow: 4px 4px 0 #f8f5ff;
+}
+
+.comic-button-secondary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 #2d1b4e;
+}
+
+.dark .comic-button-secondary:hover {
+  box-shadow: 6px 6px 0 #f8f5ff;
 }
 
 /* Glass morphism effect for overlays */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
 .dark .glass {
-  background: rgba(28, 26, 46, 0.8);
+  background: rgba(14, 8, 30, 0.9);
 }
 
-/* Safe Area Support - Works on mobile and desktop */
+/* ========================================
+   Answer Option Buttons - Gartic.io Style
+   ======================================== */
+
+.answer-option {
+  @apply w-full p-4 rounded-xl text-left font-bold transition-all;
+  background: var(--bg-card);
+  border: 3px solid var(--text-primary);
+  box-shadow: 4px 4px 0 var(--text-primary);
+}
+
+.answer-option:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--text-primary);
+}
+
+.answer-option:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--text-primary);
+}
+
+.answer-option.selected {
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+  color: white;
+  border-color: var(--text-primary);
+}
+
+.answer-option.eliminated {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+  transform: rotate(-1deg);
+}
+
+/* ========================================
+   Power-up Styles - Fun & Engaging
+   ======================================== */
+
+.power-up-btn {
+  @apply flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all;
+  background: var(--bg-card);
+  border: 3px solid var(--text-primary);
+  box-shadow: 3px 3px 0 var(--text-primary);
+}
+
+.power-up-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--text-primary);
+}
+
+.power-up-btn.selected {
+  background: linear-gradient(135deg, var(--accent-orange), var(--accent-yellow));
+  animation: pulse-glow 1.5s infinite;
+}
+
+.power-up-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Power-up icon container */
+.power-up-icon {
+  @apply w-8 h-8 rounded-lg flex items-center justify-center text-lg;
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  border: 2px solid var(--text-primary);
+}
+
+/* ========================================
+   Safe Area Support
+   ======================================== */
+
 .safe-area-inset {
-  /* Mobile: respect device safe areas (notch, dynamic island, etc.) */
-  /* Desktop: use comfortable padding */
   padding-top: max(1rem, env(safe-area-inset-top, 1rem));
   padding-bottom: max(1rem, env(safe-area-inset-bottom, 1rem));
-  padding-left: max(1rem, env(safe-area-inset-left, 1rem));
-  padding-right: max(1rem, env(safe-area-inset-right, 1rem));
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0.75rem));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0.75rem));
 }
 
 .safe-area-top {
   padding-top: max(1rem, env(safe-area-inset-top, 1rem));
 }
 
-/* Mobile-specific adjustments */
-@media (max-width: 768px) {
+/* Mobile-specific adjustments for iPhone 14 Pro size (6.1"-6.7") */
+@media (max-width: 430px) {
   .safe-area-inset {
-    /* Increase top padding on mobile to clear dynamic island/notch */
-    padding-top: max(1.5rem, env(safe-area-inset-top, 1.5rem));
+    padding-top: max(3rem, env(safe-area-inset-top, 3rem));
+    padding-left: max(1rem, env(safe-area-inset-left, 1rem));
+    padding-right: max(1rem, env(safe-area-inset-right, 1rem));
   }
   
-  /* iOS-specific: additional safeguards */
-  @supports (-webkit-touch-callout: none) {
-    .safe-area-inset {
-      padding-top: max(2rem, env(safe-area-inset-top, 2rem));
-    }
+  /* Larger touch targets on mobile */
+  .game-control-btn {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 10px;
+  }
+  
+  /* Slightly smaller shadows on mobile for cleaner look */
+  .comic-button {
+    box-shadow: 4px 4px 0 #2d1b4e;
+  }
+  
+  .comic-button:hover {
+    box-shadow: 5px 5px 0 #2d1b4e;
+  }
+  
+  .dark .comic-button {
+    box-shadow: 4px 4px 0 #0c0618;
+  }
+  
+  .dark .comic-button:hover {
+    box-shadow: 5px 5px 0 #0c0618;
+  }
+}
+
+/* Discord Activity viewport adjustments */
+@media (max-height: 700px) {
+  .safe-area-inset {
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0.5rem));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0.5rem));
   }
 }
 
 /* Desktop adjustments */
 @media (min-width: 769px) {
   .safe-area-inset {
-    /* More generous padding on desktop for better centering */
-    padding-top: 2rem;
-    padding-bottom: 2rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
   }
 }
 
@@ -238,4 +433,296 @@ html {
 
 .animate-slide-down {
   animation: slide-down 0.3s ease-out;
+}
+
+/* ========================================
+   Game Animations - Gartic.io Inspired
+   Fun, playful animations for game events
+   ======================================== */
+
+/* Pop in effect - for new elements appearing */
+@keyframes pop-in {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 0.35s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Bounce effect - for correct answers, celebrations */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-15px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-bounce-happy {
+  animation: bounce 0.6s ease-in-out;
+}
+
+/* Shake effect - for wrong answers, errors */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-5px) rotate(-1deg);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(5px) rotate(1deg);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Pulse glow - for selected items, important elements */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 4px 4px 0 var(--text-primary), 0 0 0 0 rgba(255, 200, 50, 0.6);
+  }
+  50% {
+    box-shadow: 4px 4px 0 var(--text-primary), 0 0 20px 8px rgba(255, 200, 50, 0);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s infinite;
+}
+
+/* Countdown urgency - grows and shakes */
+@keyframes countdown-urgent {
+  0%, 100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.2) rotate(-3deg);
+  }
+  75% {
+    transform: scale(1.2) rotate(3deg);
+  }
+}
+
+.animate-countdown-urgent {
+  animation: countdown-urgent 0.25s ease-in-out infinite;
+}
+
+/* Slide in from bottom - for results */
+@keyframes slide-in-up {
+  0% {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-up {
+  animation: slide-in-up 0.4s ease-out forwards;
+}
+
+/* Staggered animation helper */
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+.animate-delay-500 { animation-delay: 500ms; }
+
+/* Trophy bounce for winner */
+@keyframes trophy-bounce {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-20px) rotate(-8deg);
+  }
+  50% {
+    transform: translateY(0) rotate(0deg);
+  }
+  75% {
+    transform: translateY(-10px) rotate(8deg);
+  }
+}
+
+.animate-trophy {
+  animation: trophy-bounce 1.5s ease-in-out infinite;
+}
+
+/* Confetti fall effect for celebration */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-100%) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti {
+  animation: confetti-fall 3s linear forwards;
+}
+
+/* Button press effect */
+@keyframes button-press {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-button-press {
+  animation: button-press 0.15s ease-out;
+}
+
+/* Score increment animation */
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.4);
+    color: var(--accent-green);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-score-pop {
+  animation: score-pop 0.5s ease-out;
+}
+
+/* Float up and fade - for point indicators */
+@keyframes float-up-fade {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+}
+
+.animate-float-up {
+  animation: float-up-fade 1s ease-out forwards;
+}
+
+/* Wiggle for attention - fun wobble */
+@keyframes wiggle {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-8deg);
+  }
+  40% {
+    transform: rotate(8deg);
+  }
+  60% {
+    transform: rotate(-5deg);
+  }
+  80% {
+    transform: rotate(5deg);
+  }
+}
+
+.animate-wiggle {
+  animation: wiggle 0.5s ease-in-out;
+}
+
+/* Slow pulse for waiting states */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Sparkle effect */
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(180deg);
+  }
+}
+
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* Rubber band - fun stretch effect */
+@keyframes rubber-band {
+  0% { transform: scale(1); }
+  30% { transform: scaleX(1.25) scaleY(0.75); }
+  40% { transform: scaleX(0.75) scaleY(1.25); }
+  50% { transform: scaleX(1.15) scaleY(0.85); }
+  65% { transform: scaleX(0.95) scaleY(1.05); }
+  75% { transform: scaleX(1.05) scaleY(0.95); }
+  100% { transform: scale(1); }
+}
+
+.animate-rubber-band {
+  animation: rubber-band 0.6s ease-in-out;
+}
+
+/* Jelly - wobbly jelly effect */
+@keyframes jelly {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(0.9, 1.1); }
+  50% { transform: scale(1.1, 0.9); }
+  75% { transform: scale(0.95, 1.05); }
+}
+
+.animate-jelly {
+  animation: jelly 0.4s ease-in-out;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
 }

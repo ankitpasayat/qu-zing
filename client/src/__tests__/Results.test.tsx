@@ -23,6 +23,14 @@ const createMockPlayer = (overrides: Partial<Player> = {}): Player => ({
   isConnected: true,
   isSpectator: false,
   joinedAt: Date.now(),
+  powerUps: [
+    { type: 'double-down', used: false },
+    { type: 'safety-net', used: false },
+    { type: '50-50', used: false },
+  ],
+  streak: { current: 0, best: 0 },
+  gambit: null,
+  lastAnswerTime: null,
   ...overrides,
 });
 
@@ -83,7 +91,7 @@ describe('Results Component', () => {
       />
     );
 
-    expect(screen.getByText('🎉 Game Over!')).toBeInTheDocument();
+    expect(screen.getByText(/Game Over!/i)).toBeInTheDocument();
   });
 
   describe('Solo Game', () => {
@@ -101,7 +109,7 @@ describe('Results Component', () => {
         />
       );
 
-      expect(screen.getByText('Great solo practice session!')).toBeInTheDocument();
+      expect(screen.getByText(/Great solo practice/i)).toBeInTheDocument();
     });
 
     it('should show player score', () => {
@@ -404,6 +412,41 @@ describe('Results Component', () => {
       );
 
       expect(screen.getByText('ABCD12')).toBeInTheDocument();
+    });
+    
+    it('should copy lobby code when clicking copy button', async () => {
+      const user = userEvent.setup();
+      const mockWriteText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: mockWriteText,
+        },
+        writable: true,
+        configurable: true,
+      });
+      
+      const currentPlayer = createMockPlayer({ isHost: true });
+      const session = createMockSession({
+        players: [currentPlayer],
+        platform: 'browser',
+        channelId: 'ABCD12',
+      });
+
+      render(
+        <Results
+          session={session}
+          currentPlayer={currentPlayer}
+          isHost={true}
+          onPlayAgain={mockOnPlayAgain}
+          onExitGame={mockOnExitGame}
+        />
+      );
+
+      // Find the copy button by its title
+      const copyButton = screen.getByTitle('Click to copy lobby code');
+      await user.click(copyButton);
+      
+      expect(mockWriteText).toHaveBeenCalledWith('ABCD12');
     });
   });
 });

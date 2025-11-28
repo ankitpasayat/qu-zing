@@ -95,7 +95,7 @@ describe('PlayerAvatar', () => {
       expect(img).toHaveStyle({ width: '50px', height: '50px' });
     });
 
-    it('handles image error by trying fallback format', () => {
+    it('handles image error by trying png fallback first', () => {
       const user: DiscordUser = {
         id: '123456789',
         username: 'DiscordUser',
@@ -107,10 +107,125 @@ describe('PlayerAvatar', () => {
       render(<PlayerAvatar user={user} size={40} />);
       
       const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to webp to simulate the first load attempt
+      img.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.webp?size=80`;
+      
       fireEvent.error(img);
       
-      // After error, src should have changed to a fallback
-      expect(img.src).toBeTruthy();
+      // After first error on webp, should try png
+      expect(img.src).toContain('.png');
+    });
+
+    it('handles png error by trying jpg fallback', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to png to simulate having already tried webp
+      img.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=80`;
+      
+      fireEvent.error(img);
+      
+      // After png error, should try jpg
+      expect(img.src).toContain('.jpg');
+    });
+
+    it('handles all format failures by falling back to default avatar', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to jpg to simulate having already tried webp and png
+      img.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.jpg?size=80`;
+      
+      fireEvent.error(img);
+      
+      // After jpg error, should use embed/avatars default
+      expect(img.src).toContain('embed/avatars');
+    });
+
+    it('uses discriminator-based default for legacy users', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to a non-avatar URL that's not embed/avatars
+      img.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.jpg?size=80`;
+      
+      fireEvent.error(img);
+      
+      // Should use discriminator % 5 for legacy users
+      expect(img.src).toContain('embed/avatars');
+    });
+
+    it('uses id-based default for new username system users', () => {
+      const user: DiscordUser = {
+        id: '123456789012345678',
+        username: 'DiscordUser',
+        discriminator: '0', // New username system
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to jpg to trigger fallback
+      img.src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.jpg?size=80`;
+      
+      fireEvent.error(img);
+      
+      // Should use embed/avatars for new username system
+      expect(img.src).toContain('embed/avatars');
+    });
+
+    it('does not change src if already using embed/avatars fallback', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img') as HTMLImageElement;
+      
+      // Set to default avatar
+      img.src = 'https://cdn.discordapp.com/embed/avatars/4.png';
+      
+      const originalSrc = img.src;
+      fireEvent.error(img);
+      
+      // Should remain the same - no more fallbacks
+      expect(img.src).toBe(originalSrc);
     });
   });
 
@@ -129,6 +244,38 @@ describe('PlayerAvatar', () => {
       
       const avatar = screen.getByText('T');
       expect(avatar).toHaveStyle({ width: '40px', height: '40px' });
+    });
+
+    it('applies custom className', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: 'avatar_hash',
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} className="custom-class" />);
+      
+      const img = screen.getByRole('img');
+      expect(img).toHaveClass('rounded-full', 'custom-class');
+    });
+  });
+
+  describe('Discord Users without avatar', () => {
+    it('uses default avatar when user has no avatar hash', () => {
+      const user: DiscordUser = {
+        id: '123456789',
+        username: 'DiscordUser',
+        discriminator: '1234',
+        avatar: null, // No avatar
+        globalName: 'DiscordUser',
+      };
+      
+      render(<PlayerAvatar user={user} size={40} />);
+      
+      const img = screen.getByRole('img');
+      expect(img.getAttribute('src')).toContain('embed/avatars');
     });
   });
 });

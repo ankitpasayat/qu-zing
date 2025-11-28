@@ -45,7 +45,7 @@ describe('TokenSelector Component', () => {
     );
 
     expect(screen.getByText('No tokens remaining!')).toBeInTheDocument();
-    expect(screen.getByText("You'll still earn points, just at 1x")).toBeInTheDocument();
+    expect(screen.getByText(/You'll still earn points, just at 1x/i)).toBeInTheDocument();
   });
 
   it('should call onSelect when clicking a token', async () => {
@@ -205,7 +205,7 @@ describe('TokenSelector Component', () => {
         />
       );
 
-      expect(screen.getByText('Select an answer first to bet a token')).toBeInTheDocument();
+      expect(screen.getByText(/Select an answer first/i)).toBeInTheDocument();
     });
 
     it('should not call onSelect when disabled', async () => {

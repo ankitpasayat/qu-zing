@@ -31,6 +31,14 @@ function createMockPlayer(overrides: Partial<Player> = {}): Player {
     isSpectator: false,
     isConnected: true,
     joinedAt: Date.now(),
+    powerUps: [
+      { type: 'double-down', used: false },
+      { type: 'safety-net', used: false },
+      { type: '50-50', used: false },
+    ],
+    streak: { current: 0, best: 0 },
+    gambit: null,
+    lastAnswerTime: null,
     ...overrides,
   };
 }
@@ -47,6 +55,17 @@ function createMockQuestion(overrides: Partial<Question> = {}): Question {
     difficulty: 'easy',
     ...overrides,
   } as Question;
+}
+
+function createMockVote(playerId: string, answer: number, token: number) {
+  return {
+    playerId,
+    answer,
+    token,
+    submittedAt: Date.now(),
+    powerUpUsed: null,
+    eliminatedOptions: null,
+  };
 }
 
 function createMockSession(overrides: Partial<GameSession> = {}): GameSession {
@@ -106,7 +125,7 @@ describe('GamePlay', () => {
       render(<GamePlay {...defaultProps} />);
       
       expect(screen.getByText('What is 2 + 2?')).toBeInTheDocument();
-      expect(screen.getByText('Next Question')).toBeInTheDocument();
+      expect(screen.getByText(/Next Question/i)).toBeInTheDocument();
       expect(screen.getByText('Math')).toBeInTheDocument();
     });
 
@@ -152,7 +171,7 @@ describe('GamePlay', () => {
     it('renders voting phase with answer options', () => {
       render(<GamePlay {...defaultProps} session={votingSession} />);
       
-      expect(screen.getByText('Make Your Choice')).toBeInTheDocument();
+      expect(screen.getByText(/Make Your Choice/i)).toBeInTheDocument();
     });
 
     it('shows submit button disabled initially', () => {
@@ -165,7 +184,7 @@ describe('GamePlay', () => {
     it('shows vote submitted message after submitting', () => {
       const sessionWithVote = createMockSession({
         currentPhase: 'voting',
-        votes: [{ playerId: 'player-1', answer: 3, token: 1, submittedAt: Date.now() }],
+        votes: [createMockVote('player-1', 3, 1)],
       });
       
       render(<GamePlay {...defaultProps} session={sessionWithVote} />);
@@ -202,24 +221,25 @@ describe('GamePlay', () => {
       if (tokenButton) await user.click(tokenButton);
       
       // Submit
-      const submitButton = screen.getByRole('button', { name: 'Submit Vote' });
+      const submitButton = screen.getByRole('button', { name: /Submit Vote/i });
       await user.click(submitButton);
       
-      expect(defaultProps.onSubmitVote).toHaveBeenCalledWith(3, 1);
+      // Now includes power-up params (null, null) when no power-up selected
+      expect(defaultProps.onSubmitVote).toHaveBeenCalledWith(3, 1, null, null);
     });
   });
 
   describe('Reveal Phase', () => {
     const revealSession = createMockSession({
       currentPhase: 'reveal',
-      votes: [{ playerId: 'player-1', answer: 3, token: 2, submittedAt: Date.now() }],
+      votes: [createMockVote('player-1', 3, 2)],
     });
 
     it('renders reveal phase with correct answer', () => {
       render(<GamePlay {...defaultProps} session={revealSession} />);
       
-      expect(screen.getByText('The Answer')).toBeInTheDocument();
-      expect(screen.getByText('Correct Answer:')).toBeInTheDocument();
+      expect(screen.getByText(/The Answer/i)).toBeInTheDocument();
+      expect(screen.getByText(/Correct Answer/i)).toBeInTheDocument();
     });
 
     it('displays explanation for the answer', () => {
@@ -233,7 +253,7 @@ describe('GamePlay', () => {
         currentPhase: 'reveal',
         currentRound: 5,
         totalRounds: 5,
-        votes: [{ playerId: 'player-1', answer: 3, token: 2, submittedAt: Date.now() }],
+        votes: [createMockVote('player-1', 3, 2)],
       });
       
       render(<GamePlay {...defaultProps} session={finalRoundSession} />);
@@ -299,7 +319,7 @@ describe('GamePlay', () => {
       expect(screen.getByText('OR')).toBeInTheDocument();
     });
 
-    it('shows reveal with correct more-or-less answer', () => {
+    it('shows reveal with correct more-or-less answer (option1)', () => {
       const revealMol = createMockSession({
         currentPhase: 'reveal',
         currentQuestion: {
@@ -313,12 +333,34 @@ describe('GamePlay', () => {
           explanation: 'Mount Everest is the tallest.',
           difficulty: 'medium',
         } as Question,
-        votes: [{ playerId: 'player-1', answer: 0, token: 2, submittedAt: Date.now() }],
+        votes: [createMockVote('player-1', 0, 2)],
       });
 
       render(<GamePlay {...defaultProps} session={revealMol} />);
       
       expect(screen.getByText('Mount Everest')).toBeInTheDocument();
+    });
+
+    it('shows reveal with correct more-or-less answer (option2)', () => {
+      const revealMol = createMockSession({
+        currentPhase: 'reveal',
+        currentQuestion: {
+          id: 'q-mol',
+          type: 'more-or-less',
+          text: 'Which has more population?',
+          category: 'Geography',
+          option1: 'France',
+          option2: 'Germany',
+          correctAnswer: 1, // option2 is correct
+          explanation: 'Germany has more population.',
+          difficulty: 'medium',
+        } as Question,
+        votes: [createMockVote('player-1', 1, 2)],
+      });
+
+      render(<GamePlay {...defaultProps} session={revealMol} />);
+      
+      expect(screen.getByText('Germany')).toBeInTheDocument();
     });
   });
 
@@ -345,7 +387,7 @@ describe('GamePlay', () => {
       expect(screen.getByText(/in planets/)).toBeInTheDocument();
     });
 
-    it('shows reveal with numerical answer', () => {
+    it('shows reveal with numerical answer and unit', () => {
       const revealNum = createMockSession({
         currentPhase: 'reveal',
         currentQuestion: {
@@ -359,12 +401,92 @@ describe('GamePlay', () => {
           explanation: 'There are 8 planets.',
           difficulty: 'easy',
         } as Question,
-        votes: [{ playerId: 'player-1', answer: 8, token: 2, submittedAt: Date.now() }],
+        votes: [createMockVote('player-1', 8, 2)],
       });
 
       render(<GamePlay {...defaultProps} session={revealNum} />);
       
       expect(screen.getByText('8 planets')).toBeInTheDocument();
+    });
+
+    it('shows reveal with numerical answer without unit', () => {
+      const revealNum = createMockSession({
+        currentPhase: 'reveal',
+        currentQuestion: {
+          id: 'q-num',
+          type: 'numerical',
+          text: 'What is 5 times 5?',
+          category: 'Math',
+          correctAnswer: 25,
+          // no unit
+          acceptableRange: 0,
+          explanation: '5 times 5 equals 25.',
+          difficulty: 'easy',
+        } as Question,
+        votes: [createMockVote('player-1', 25, 2)],
+      });
+
+      render(<GamePlay {...defaultProps} session={revealNum} />);
+      
+      expect(screen.getByText('25')).toBeInTheDocument();
+    });
+
+    it('renders numerical input without unit', () => {
+      const numSessionNoUnit = createMockSession({
+        currentPhase: 'voting',
+        currentQuestion: {
+          id: 'q-num',
+          type: 'numerical',
+          text: 'What is 5 times 5?',
+          category: 'Math',
+          correctAnswer: 25,
+          // no unit
+          acceptableRange: 0,
+          explanation: '5 times 5 equals 25.',
+          difficulty: 'easy',
+        } as Question,
+      });
+
+      render(<GamePlay {...defaultProps} session={numSessionNoUnit} />);
+      
+      expect(screen.getByPlaceholderText('Your answer...')).toBeInTheDocument();
+      // Should show "Enter your answer" without unit specification
+      expect(screen.getByText(/Enter your answer/)).toBeInTheDocument();
+    });
+
+    it('allows entering and clearing numerical answer', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<GamePlay {...defaultProps} session={numSession} />);
+      
+      const input = screen.getByPlaceholderText('Your answer...');
+      
+      // Enter a number
+      await user.type(input, '42');
+      expect(input).toHaveValue(42);
+      
+      // Clear the input
+      await user.clear(input);
+      expect(input).toHaveValue(null);
+    });
+
+    it('can submit numerical answer', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<GamePlay {...defaultProps} session={numSession} />);
+      
+      const input = screen.getByPlaceholderText('Your answer...');
+      
+      // Enter a number
+      await user.type(input, '8');
+      
+      // Select a token
+      const tokenButtons = screen.getAllByRole('button').filter(btn => btn.textContent === '1');
+      if (tokenButtons.length > 0) await user.click(tokenButtons[0]);
+      
+      // Submit
+      const submitButton = screen.getByRole('button', { name: /Submit Vote/i });
+      await user.click(submitButton);
+      
+      expect(defaultProps.onSubmitVote).toHaveBeenCalledWith(8, 1, null, null);
     });
   });
 
@@ -372,7 +494,7 @@ describe('GamePlay', () => {
     it('shows exit button', () => {
       render(<GamePlay {...defaultProps} />);
       
-      const exitButton = screen.getByTitle('Exit game');
+      const exitButton = screen.getByTitle('Leave game');
       expect(exitButton).toBeInTheDocument();
     });
 
@@ -380,20 +502,20 @@ describe('GamePlay', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<GamePlay {...defaultProps} />);
       
-      const exitButton = screen.getByTitle('Exit game');
+      const exitButton = screen.getByTitle('Leave game');
       await user.click(exitButton);
       
-      expect(screen.getByText('Exit Game?')).toBeInTheDocument();
+      expect(screen.getByText(/Exit Game\?/i)).toBeInTheDocument();
     });
 
     it('calls onExitGame when confirmed', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<GamePlay {...defaultProps} />);
       
-      const exitButton = screen.getByTitle('Exit game');
+      const exitButton = screen.getByTitle('Leave game');
       await user.click(exitButton);
       
-      const confirmButton = screen.getByRole('button', { name: 'Exit Game' });
+      const confirmButton = screen.getByRole('button', { name: 'Exit' });
       await user.click(confirmButton);
       
       expect(defaultProps.onExitGame).toHaveBeenCalled();
@@ -403,20 +525,20 @@ describe('GamePlay', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<GamePlay {...defaultProps} />);
       
-      const exitButton = screen.getByTitle('Exit game');
+      const exitButton = screen.getByTitle('Leave game');
       await user.click(exitButton);
       
-      const cancelButton = screen.getByRole('button', { name: 'Cancel' });
+      const cancelButton = screen.getByRole('button', { name: 'Stay' });
       await user.click(cancelButton);
       
-      expect(screen.queryByText('Exit Game?')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Exit Game\?/i)).not.toBeInTheDocument();
     });
 
     it('shows solo mode message when only one player', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<GamePlay {...defaultProps} />);
       
-      const exitButton = screen.getByTitle('Exit game');
+      const exitButton = screen.getByTitle('Leave game');
       await user.click(exitButton);
       
       expect(screen.getByText(/solo game/i)).toBeInTheDocument();

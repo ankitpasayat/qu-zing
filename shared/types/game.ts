@@ -70,20 +70,27 @@ export interface Player {
 export function generateTokenCounts(totalRounds: number): Record<number, number> {
   const counts: Record<number, number> = {};
   
-  // Base: 1 of each token 1-10
-  for (let i = 1; i <= 10; i++) {
-    counts[i] = 1;
-  }
-  
-  // Extra tokens for rounds > 10, starting from 10 and going down
-  let extraTokens = totalRounds - 10;
-  let tokenValue = 10;
-  
-  while (extraTokens > 0 && tokenValue >= 1) {
-    counts[tokenValue]++;
-    extraTokens--;
-    tokenValue--;
-    if (tokenValue < 1) tokenValue = 10; // Wrap around for 20+ rounds
+  if (totalRounds < 10) {
+    // Only create tokens up to totalRounds
+    for (let i = 1; i <= totalRounds; i++) {
+      counts[i] = 1;
+    }
+  } else {
+    // Base: 1 of each token 1-10
+    for (let i = 1; i <= 10; i++) {
+      counts[i] = 1;
+    }
+    
+    // Extra tokens for rounds > 10, starting from 10 and going down
+    let extraTokens = totalRounds - 10;
+    let tokenValue = 10;
+    
+    while (extraTokens > 0 && tokenValue >= 1) {
+      counts[tokenValue]++;
+      extraTokens--;
+      tokenValue--;
+      if (tokenValue < 1) tokenValue = 10; // Wrap around for 20+ rounds
+    }
   }
   
   return counts;
@@ -300,13 +307,25 @@ export function getGambitReward(stakeTokenValue: number): number {
 }
 
 // Token Trading: Calculate trade values
+// Combine (Fuse): Trade 2 tokens of value N for 1 token of value min(2N, 10)
+export function getCombineResult(sourceValue: number): { required: number; value: number } {
+  return { required: 2, value: Math.min(sourceValue * 2, 10) };
+}
+
+// Split (Fission): Trade 1 token of value N for 2 tokens: floor(N/2) and ceil(N/2)
+export function getSplitResult(sourceValue: number): { count: number; values: [number, number] } {
+  const val1 = Math.floor(sourceValue / 2);
+  const val2 = Math.ceil(sourceValue / 2);
+  return { count: 2, values: [val1, val2] };
+}
+
+/** @deprecated Use getCombineResult instead */
 export function getTradeUpCost(targetValue: number): { required: number; value: number } {
-  // Trade 2 tokens of value N for 1 token of value N+1
   return { required: 2, value: targetValue - 1 };
 }
 
+/** @deprecated Use getSplitResult instead */
 export function getTradeDownResult(sourceValue: number): { count: number; value: number } {
-  // Trade 1 token of value N for 2 tokens of value floor(N/2)
   return { count: 2, value: Math.floor(sourceValue / 2) };
 }
 

@@ -9,6 +9,8 @@ import {
   getTradeDownResult,
   getHighestAvailableToken,
   calculateScore,
+  generateTokenCounts,
+  getAvailableTokens,
   SPEED_DEMON_THRESHOLD_MS,
   SPEED_DEMON_BONUS,
   COMEBACK_MULTIPLIER,
@@ -263,6 +265,112 @@ describe('Game Mechanics', () => {
 
     it('COMEBACK_MULTIPLIER should be 1.2', () => {
       expect(COMEBACK_MULTIPLIER).toBe(1.2);
+    });
+  });
+
+  describe('Token Generation', () => {
+    describe('generateTokenCounts', () => {
+      it('should generate only tokens up to totalRounds when < 10', () => {
+        const counts5 = generateTokenCounts(5);
+        
+        // Only tokens 1-5 should exist
+        expect(counts5[1]).toBe(1);
+        expect(counts5[2]).toBe(1);
+        expect(counts5[3]).toBe(1);
+        expect(counts5[4]).toBe(1);
+        expect(counts5[5]).toBe(1);
+        // Tokens 6-10 should not exist
+        expect(counts5[6]).toBeUndefined();
+        expect(counts5[10]).toBeUndefined();
+      });
+
+      it('should generate base tokens (1-10) for exactly 10 rounds', () => {
+        const counts = generateTokenCounts(10);
+        
+        for (let i = 1; i <= 10; i++) {
+          expect(counts[i]).toBe(1);
+        }
+      });
+
+      it('should generate extra tokens starting from 10 for rounds > 10', () => {
+        const counts = generateTokenCounts(12);
+        
+        // Base tokens
+        for (let i = 1; i <= 8; i++) {
+          expect(counts[i]).toBe(1);
+        }
+        // Extra tokens for 10 and 9
+        expect(counts[10]).toBe(2);
+        expect(counts[9]).toBe(2);
+      });
+
+      it('should handle 15 rounds with wrap-around', () => {
+        const counts = generateTokenCounts(15);
+        
+        // 5 extra tokens: 10, 9, 8, 7, 6 each get +1
+        expect(counts[10]).toBe(2);
+        expect(counts[9]).toBe(2);
+        expect(counts[8]).toBe(2);
+        expect(counts[7]).toBe(2);
+        expect(counts[6]).toBe(2);
+        // Lower values stay at 1
+        expect(counts[5]).toBe(1);
+        expect(counts[1]).toBe(1);
+      });
+
+      it('should handle 20+ rounds with multiple wrap-arounds', () => {
+        const counts = generateTokenCounts(20);
+        
+        // 10 extra tokens = full wrap-around, all get +1
+        for (let i = 1; i <= 10; i++) {
+          expect(counts[i]).toBe(2);
+        }
+      });
+
+      it('should handle edge case of 1 round', () => {
+        const counts = generateTokenCounts(1);
+        
+        expect(counts[1]).toBe(1);
+        expect(counts[2]).toBeUndefined();
+      });
+    });
+
+    describe('getAvailableTokens', () => {
+      it('should return sorted array of available tokens', () => {
+        const tokens = getAvailableTokens({ 1: 1, 3: 2, 5: 1 });
+        
+        expect(tokens).toEqual([1, 3, 5]);
+      });
+
+      it('should exclude tokens with 0 count', () => {
+        const tokens = getAvailableTokens({ 1: 1, 2: 0, 3: 1, 4: 0, 5: 1 });
+        
+        expect(tokens).toEqual([1, 3, 5]);
+      });
+
+      it('should return empty array when no tokens available', () => {
+        const tokens = getAvailableTokens({});
+        
+        expect(tokens).toEqual([]);
+      });
+
+      it('should return all tokens 1-10 when all available', () => {
+        const counts: Record<number, number> = {};
+        for (let i = 1; i <= 10; i++) {
+          counts[i] = 1;
+        }
+        
+        const tokens = getAvailableTokens(counts);
+        
+        expect(tokens).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      });
+
+      it('should handle partial token set from < 10 round game', () => {
+        const counts = generateTokenCounts(5);
+        const tokens = getAvailableTokens(counts);
+        
+        expect(tokens).toEqual([1, 2, 3, 4, 5]);
+      });
     });
   });
 });

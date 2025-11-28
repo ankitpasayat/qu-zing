@@ -70,20 +70,27 @@ export interface Player {
 export function generateTokenCounts(totalRounds: number): Record<number, number> {
   const counts: Record<number, number> = {};
   
-  // Base: 1 of each token 1-10
-  for (let i = 1; i <= 10; i++) {
-    counts[i] = 1;
-  }
-  
-  // Extra tokens for rounds > 10, starting from 10 and going down
-  let extraTokens = totalRounds - 10;
-  let tokenValue = 10;
-  
-  while (extraTokens > 0 && tokenValue >= 1) {
-    counts[tokenValue]++;
-    extraTokens--;
-    tokenValue--;
-    if (tokenValue < 1) tokenValue = 10; // Wrap around for 20+ rounds
+  if (totalRounds < 10) {
+    // Only create tokens up to totalRounds
+    for (let i = 1; i <= totalRounds; i++) {
+      counts[i] = 1;
+    }
+  } else {
+    // Base: 1 of each token 1-10
+    for (let i = 1; i <= 10; i++) {
+      counts[i] = 1;
+    }
+    
+    // Extra tokens for rounds > 10, starting from 10 and going down
+    let extraTokens = totalRounds - 10;
+    let tokenValue = 10;
+    
+    while (extraTokens > 0 && tokenValue >= 1) {
+      counts[tokenValue]++;
+      extraTokens--;
+      tokenValue--;
+      if (tokenValue < 1) tokenValue = 10; // Wrap around for 20+ rounds
+    }
   }
   
   return counts;

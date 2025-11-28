@@ -267,6 +267,20 @@ describe('Game Types', () => {
   });
 
   describe('generateTokenCounts', () => {
+    it('should generate only tokens up to totalRounds when < 10', () => {
+      const counts5 = generateTokenCounts(5);
+      
+      // Only tokens 1-5 should exist
+      expect(counts5[1]).toBe(1);
+      expect(counts5[2]).toBe(1);
+      expect(counts5[3]).toBe(1);
+      expect(counts5[4]).toBe(1);
+      expect(counts5[5]).toBe(1);
+      // Tokens 6-10 should not exist
+      expect(counts5[6]).toBeUndefined();
+      expect(counts5[10]).toBeUndefined();
+    });
+
     it('should generate base tokens (1-10) for 10 rounds', () => {
       const counts = generateTokenCounts(10);
       
@@ -308,6 +322,13 @@ describe('Game Types', () => {
       for (let i = 1; i <= 10; i++) {
         expect(counts[i]).toBe(2);
       }
+    });
+
+    it('should handle edge case of 1 round', () => {
+      const counts = generateTokenCounts(1);
+      
+      expect(counts[1]).toBe(1);
+      expect(counts[2]).toBeUndefined();
     });
   });
 

@@ -76,6 +76,13 @@ const SOUND_CONFIGS: Record<SoundType, SoundConfig> = {
 // LocalStorage key for sound preferences
 const SOUND_ENABLED_KEY = 'quzing_sound_enabled';
 
+// Type helper for webkit AudioContext (Safari compatibility)
+type WebkitWindow = Window & { webkitAudioContext: typeof AudioContext };
+
+function getAudioContextConstructor(): typeof AudioContext {
+  return window.AudioContext || (window as unknown as WebkitWindow).webkitAudioContext;
+}
+
 export function useSoundEffects() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const soundEnabledRef = useRef<boolean>(
@@ -87,7 +94,7 @@ export function useSoundEffects() {
   // Initialize audio context on first user interaction
   const initAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      audioContextRef.current = new (getAudioContextConstructor())();
     }
     // Resume if suspended (browser autoplay policy)
     if (audioContextRef.current.state === 'suspended') {
@@ -277,7 +284,7 @@ class CasinoJazzPlayer {
 
   private initContext() {
     if (!this.audioContext) {
-      this.audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      this.audioContext = new (getAudioContextConstructor())();
       const ctx = this.audioContext;
 
       // === COMPRESSOR (glues the mix) ===
@@ -848,7 +855,7 @@ export function playSoundGlobal(type: SoundType) {
 
   try {
     if (!globalAudioContext) {
-      globalAudioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      globalAudioContext = new (getAudioContextConstructor())();
     }
     
     if (globalAudioContext.state === 'suspended') {

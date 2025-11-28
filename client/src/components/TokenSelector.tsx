@@ -131,8 +131,8 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
         {availableTokens.map((token) => {
           const count = tokenCounts[token] || 0;
           const isSelected = selectedToken === token;
-          // Extra height needed for stacked tokens
-          const stackHeight = count > 1 ? (count - 1) * 6 : 0;
+          // Extra margin needed at top for stacked tokens that extend upward
+          const stackTopOffset = count > 1 ? (count - 1) * 6 : 0;
           
           return (
             <button
@@ -150,7 +150,7 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
                 }`}
               style={{
                 // Add padding at top for stacked chips that extend upward
-                marginTop: stackHeight,
+                marginTop: stackTopOffset,
               }}
             >
               {/* Render stacked tokens from bottom to top */}
@@ -161,7 +161,7 @@ export function TokenSelector({ tokenCounts, selectedToken, onSelect, disabled =
               {count > 1 && (
                 <div 
                   className="absolute -top-2 -right-1 w-6 h-6 md:w-7 md:h-7 bg-gradient-to-br from-yellow-300 to-yellow-500 dark:from-yellow-400 dark:to-yellow-600 rounded-full flex items-center justify-center text-xs md:text-sm font-black text-yellow-900 border-3 border-white shadow-lg animate-pop-in"
-                  style={{ zIndex: count + 1, transform: `translateY(${-stackHeight}px)` }}
+                  style={{ zIndex: count + 1, transform: `translateY(${-stackTopOffset}px)` }}
                 >
                   {count}
                 </div>
